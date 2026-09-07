@@ -9,6 +9,7 @@ Owner: Mahmoud. Working style: concise, structured, British/Australian spelling 
 | File | What it is |
 |---|---|
 | `index.html` | The app, complete. No build step, no runtime dependencies. |
+| `manifest.webmanifest`, `icon-180.png`, `icon-512.png` | Home screen install. On iPhone: share sheet, Add to Home Screen, and it opens without browser chrome. |
 | `tools/preview.mjs` | Renders every mask over a reference face as PNGs, so mask geometry can be checked without a camera. |
 | `package.json` | Only covers the preview tool. The app itself has no dependencies. |
 | `HANDOFF.md` | This document. |
@@ -29,9 +30,17 @@ Netlify drop works too. Any static host over HTTPS is fine.
 - **Tracking:** MediaPipe Tasks Vision `FaceLandmarker`, loaded as an ES module from `cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10`. WASM from the same package. Model file from `storage.googleapis.com/mediapipe-models/face_landmarker/...float16/1/face_landmarker.task`. GPU delegate with CPU fallback. 478 landmarks per face including irises. `numFaces: 2`.
 - **Modes:** `VIDEO` running mode for the live camera (`detectForVideo` in a `requestAnimationFrame` loop, only when `video.currentTime` changes). Switches to `IMAGE` mode for uploaded photos and back again when the camera restarts.
 - **Smoothing:** `smooth()` eases every landmark towards its detected position at alpha 0.5, so the masks sit still on a still face. Reset with `prev = null` whenever the source changes (camera start, photo load).
-- **Rendering:** one `<canvas id="out">`. Each frame draws the video, then each face's mask. Front camera is mirrored with a canvas transform (`translate(W,0); scale(-1,1)`) so the saved image matches the preview. Back camera is not mirrored.
-- **Masks:** each entry in `MASKS` has `draw(ctx, g)` where `g = geom(landmarks, W, H)`. `geom` gives `P(i)` for pixel coordinates of landmark `i`, face height `fh`, face width `fw`, unit vectors `up` and `rt`, `off(point, u, v)` to offset along the face axes as fractions of `fh`/`fw`, `lerp`, `dist`, `ring(ids, k)` to scale a landmark loop about its centroid, and `roll` (head tilt in radians). Shapes are polygons through real landmarks, so they deform with expression and head turn.
-- **Reference face:** `REF` holds the 111 landmarks the masks read, taken from the MediaPipe canonical face model and packed as `index,x,y` per mille. `refFace(ctx, g)` draws a plain face from them. Used for the mask tray thumbnails and by `tools/preview.mjs`. Add a mask that reads a landmark outside `REF` and it falls back to the face centre in those two places only, never in the live app. Re-pack `REF` if that happens.
+- **Layout:** the camera is the page. `.stage` is fixed full screen, the canvas is `object-fit: cover`, and the title, hint, shutter, actions and mask tray float over it in `.dock`. Uploaded photos switch to `object-fit: contain` so nothing is cropped. Save crops the PNG to what was on screen (`visibleRect`).
+- **Camera:** asks for 1080x1920 in the screen's orientation. Some phones read width and height in sensor orientation and hand a portrait screen a landscape frame, so `startCamera` checks `videoWidth > videoHeight` and asks once more with the two swapped.
+- **Rendering:** one `<canvas id="out">`. Each frame draws the video, then `composite()` draws each face's mask. Front camera is mirrored with a canvas transform (`translate(W,0); scale(-1,1)`) so the saved image matches the preview. Back camera is not mirrored.
+- **Masks:** each entry in `MASKS` has up to two drawing functions, both taking `(ctx, g)` where `g = geom(landmarks, W, H)`.
+  - `tex(ctx, g)` paints the part that sits on the face. It runs once per mask into a 1024 texture in the face's UV space (`g = geom(UVL, 1024, 1024)`), and every frame the mesh renderer warps that texture onto the 898 triangles of the live face mesh. So the fabric bulges over the nose, wraps the cheeks and moves with the mouth. This is how TikTok and Snapchat face masks work.
+  - `over(ctx, g)` paints anything that leaves the face (ear loops, cat ears, the bandana tail) or is rigid and should not bend with skin (sunglasses). Drawn flat in screen space each frame.
+  - `geom` gives `P(i)` for pixel coordinates of landmark `i`, face height `fh`, face width `fw`, unit vectors `up` and `rt`, `off(point, u, v)` to offset along the face axes as fractions of `fh`/`fw`, `lerp`, `dist`, `centroid`, `ring(ids, k)` to scale a landmark loop about its centroid, and `roll` (head tilt in radians). The same drawing code works in texture space and screen space because everything is relative to the face axes.
+  - `inset(g, ids, k)` pulls an outline loop inwards so a mask edge sits on skin rather than on the silhouette. `shadow` and `shade` add a drop shadow and a curvature gradient. All three are what stop a mask reading as a sticker.
+- **Mesh renderer (`mesh`):** a small WebGL program. Vertex positions are the 468 normalised landmarks, UVs and triangles come from `MESH`. The fragment shader samples the mask texture and re-lights it from a 32 px wide copy of the frame (`uLight`), relative to the mean brightness of the face box (`uMean`), so the mask sits in the same light as the face. The light map is deliberately tiny so lips and brows under the mask do not print through. Knobs: `relight` strength in `render()` (0.75), the clamp range in the shader (0.7 to 1.5), and the light map width (32). Where WebGL is missing, `composite()` draws `tex()` flat in screen space instead.
+- **Face mesh data (`MESH`):** the MediaPipe canonical face model, packed as base64 Uint16 in the page: `xy` (the canonical face in a 3:4 frame), `uv` (texture coordinates, v flipped so y runs down like an image) and `tri` (898 triangles). About 12 KB. Rebuild from `canonical_face_model.obj` in the MediaPipe repo if it ever needs to change. Per-vertex UVs come from the `f v/vt` records, not from vt order.
+- **Reference face:** `REF` is the canonical face with the ten iris points synthesised. `refFace(ctx, g)` draws a plain face from it. Used for the tray thumbnails and by `tools/preview.mjs`.
 - **Capture and save:** shutter freezes the loop (canvas keeps the last frame). Save uses `navigator.share` with a PNG file where supported (iOS share sheet), else a download link. Back to camera resumes the loop.
 - **Still photos:** file picker, `createImageBitmap` with `imageOrientation: 'from-image'`, downscaled to 1600 px max, detected once, drawn once.
 
@@ -51,6 +60,7 @@ Netlify drop works too. Any static host over HTTPS is fine.
 | Temples | 127 / 356 |
 | Under-eye cheek line | 116,117,118 / 345,346,347 |
 | Head top corners for cat ears | 54, 103 / 284, 332 |
+| Mesh edge at the temples | 162 / 389, just above 127 / 356 |
 | Face outline | `FACE_OVAL` array, reference face only |
 
 Masks: None, Surgical, Hero (eye mask), Masquerade, Cat, Shades, Bandana. All original designs, no branded or copyrighted characters. Keep it that way.
@@ -62,7 +72,9 @@ npm install
 npm run preview     # writes tools/preview/<mask id>.png
 ```
 
-The tool lifts the drawing code straight out of `index.html`, so the previews can never drift from the app. Run it after touching any `draw()` and look at the PNGs. It draws a frontal face only, so it will not catch problems that appear at extreme head angles.
+The tool lifts the drawing code straight out of `index.html`, including the mesh renderer, so the previews can never drift from the app. Run it after touching any `tex()` or `over()` and look at the PNGs. It draws a frontal face only, so it will not catch problems that appear at extreme head angles. Headless Chromium needs the SwiftShader flags the tool passes for WebGL.
+
+Anything drawn in `tex()` is cut off at the mesh boundary, which is the face outline. If a shape needs to leave the face, it belongs in `over()`.
 
 ## Design tokens
 
@@ -73,22 +85,23 @@ The tool lifts the drawing code straight out of `index.html`, so the previews ca
 
 ## Still to check on a real face
 
-The masks have been tuned against the reference face and against simulated head roll and yaw, but never against a live camera. Worth a look on the phone:
+The first live test on an iPhone showed the flat version. The mesh version has been checked against the reference face only. Worth a look on the phone:
 
-- Whether the surgical and bandana top edges clear the eyes on faces with different eye spacing.
+- Whether the re-light reads as natural or as a smudge. The three knobs are listed under the mesh renderer above. If lips still show through the surgical mask, raise the clamp floor from 0.7.
+- Whether the mask edges now sit on skin when the head turns. `inset` at 0.08 for surgical and 0.06 for bandana is a guess.
 - Whether the hero and masquerade eye holes (`ring(EYE_*, 1.6)`) clear the eyes when they are wide open.
 - Cat ear placement on someone with a lot of hair, since 54/103 and 284/332 sit at the hairline.
 - Whether alpha 0.5 in `smooth()` is the right trade between steadiness and lag.
-- Frame rate on older phones. If it drags, drop the ideal camera resolution from 1280x1706 to 960x1280, or run detection on every second frame.
+- Frame rate. Each frame now does detection, a 2D draw, a 32 px light map read and a WebGL draw at full camera resolution. If it drags, drop the ideal resolution in `openStream` from 1080x1920 to 720x1280.
+- Whether the portrait retry in `startCamera` gives a portrait frame on iOS. If the frame is still landscape, `object-fit: cover` will zoom in hard.
+- Camera permission in a home screen install. iOS asks every launch in standalone mode.
 - `roundRect` needs iOS 16+ Safari. Fine for current devices.
-- The Flip button is hidden with `.stage:not(.live) .flip{display:none}`, which must stay after `.btn` in the CSS or the cascade re-shows it.
 
 ## Backlog
 
 - More masks and colour variants, tap a selected mask again to cycle colours.
 - Video clips: `MediaRecorder` on `out.captureStream()`, share as MP4/WebM.
 - Two-person masks already work, could add per-face mask selection.
-- PWA manifest so it installs to the home screen and opens full-screen.
 - Native iOS version with ARKit face tracking if Mahmoud wants true depth-sensor fitting. Note for that conversation: LiDAR is rear-facing and not available to web pages, and TikTok-style filters use camera face mesh, not LiDAR, so the web version is already the same class of effect.
 
 ## Prior version

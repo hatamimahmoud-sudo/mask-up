@@ -4,72 +4,80 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mask up, live</title>
+<meta name="theme-color" content="#0E0C12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mask up">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
 <style>
   :root{--bg:#26222E;--stage:#0E0C12;--ink:#F6F2EA;--muted:#A9A2B4;--accent:#FF6B8B;--accent-ink:#2A0A12;--chip:#3A3545}
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
-  body{min-height:100vh;display:flex;justify-content:center}
-  .app{width:100%;max-width:480px;padding:16px 16px 32px;display:flex;flex-direction:column;gap:14px}
-  h1{font-size:34px;line-height:1;letter-spacing:-.03em;margin:8px 0 2px;font-weight:800}
-  .sub{margin:0;color:var(--muted);font-size:14px}
-  .stage{position:relative;background:var(--stage);border-radius:22px;overflow:hidden;aspect-ratio:3/4}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--stage);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+  /* The camera is the page. Everything else floats over it. */
+  .stage{position:fixed;inset:0;background:var(--stage);overflow:hidden}
   video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
-  canvas#out{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
-  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center}
-  .empty p{margin:0 0 8px;color:var(--muted);font-size:15px;max-width:28ch}
+  canvas#out{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .stage.still canvas#out{object-fit:contain}
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px 24px 200px;text-align:center}
+  h1{font-size:40px;line-height:1;letter-spacing:-.03em;margin:0;font-weight:800}
+  .sub{margin:0 0 18px;color:var(--muted);font-size:15px;max-width:30ch}
+  .msg{margin:0 0 6px;color:var(--muted);font-size:14px;max-width:30ch}
   .stage.live .empty,.stage.frozen .empty,.stage.still .empty{display:none}
-  .shutter{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25);display:none;cursor:pointer}
+  .brand{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:18px;font-weight:800;font-size:18px;letter-spacing:-.02em;text-shadow:0 1px 8px rgba(0,0,0,.7);display:none;pointer-events:none}
+  .stage.live .brand,.stage.frozen .brand,.stage.still .brand{display:block}
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:28px 0 calc(env(safe-area-inset-bottom) + 6px);display:flex;flex-direction:column;gap:10px;background:linear-gradient(to top,rgba(14,12,18,.94) 0%,rgba(14,12,18,.78) 55%,rgba(14,12,18,0) 100%)}
+  .hint{font-size:13px;color:var(--muted);min-height:18px;text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+  .row{position:relative;height:76px;display:none;align-items:center;justify-content:center}
+  .stage.live .row{display:flex}
+  .shutter{position:relative;width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25);cursor:pointer}
   .shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}
   .shutter:active::after{inset:9px}
-  .stage.live .shutter{display:block}
   button{font:inherit;color:inherit;border:0;cursor:pointer}
   .btn{padding:12px 20px;border-radius:999px;background:var(--chip);font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:8px}
   .btn.primary{background:var(--accent);color:var(--accent-ink)}
   .btn.small{padding:8px 14px;font-size:13px}
   .btn:disabled{opacity:.5;cursor:default}
-  .flip{position:absolute;right:14px;bottom:26px}
-  .stage:not(.live) .flip{display:none}
+  .flip{position:absolute;right:16px;top:50%;transform:translateY(-50%)}
   .btn:focus-visible,.shutter:focus-visible,.mask:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
-  .hint{font-size:13px;color:var(--muted);min-height:18px;text-align:center}
-  .masks{display:flex;gap:12px;overflow-x:auto;padding:6px 4px 10px;scrollbar-width:none}
+  .actions{display:none;gap:10px;padding:0 16px}
+  .actions.show{display:flex}
+  .actions .btn{flex:1;justify-content:center}
+  .masks{display:flex;gap:12px;overflow-x:auto;padding:6px 16px 4px;scrollbar-width:none}
   .masks::-webkit-scrollbar{display:none}
   .mask{flex:0 0 auto;width:66px;display:flex;flex-direction:column;align-items:center;gap:6px;background:none;padding:0;color:var(--muted);font-size:12px}
   .mask canvas{width:62px;height:62px;border-radius:50%;background:#EADFD2;border:3px solid transparent;transition:transform .15s}
   .mask.on canvas{border-color:var(--accent);transform:scale(1.1)}
   .mask.on{color:var(--ink);font-weight:600}
-  .actions{display:none;gap:10px}
-  .actions.show{display:flex}
-  .actions .btn{flex:1;justify-content:center}
-  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:#1a1720;padding:10px 16px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
+  .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 16px);transform:translateX(-50%);background:var(--ink);color:#1a1720;padding:10px 16px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center;z-index:2}
   .toast.show{opacity:1}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
-<div class="app">
-  <div>
+<div class="stage" id="stage">
+  <video id="video" playsinline autoplay muted></video>
+  <canvas id="out"></canvas>
+  <div class="empty">
     <h1>Mask up.</h1>
     <p class="sub">Live masks that follow the shape of your face. The rest of the frame stays untouched.</p>
+    <p class="msg" id="loadMsg">Loading face tracking…</p>
+    <button class="btn primary" id="btnCamera" disabled>Start camera</button>
+    <button class="btn" id="btnUpload" disabled>Choose a photo</button>
   </div>
-
-  <div class="stage" id="stage">
-    <video id="video" playsinline autoplay muted></video>
-    <canvas id="out"></canvas>
-    <div class="empty">
-      <p id="loadMsg">Loading face tracking…</p>
-      <button class="btn primary" id="btnCamera" disabled>Start camera</button>
-      <button class="btn" id="btnUpload" disabled>Choose a photo</button>
+  <div class="brand" aria-hidden="true">Mask up.</div>
+  <div class="dock">
+    <div class="hint" id="hint"></div>
+    <div class="row">
+      <button class="shutter" id="shutter" aria-label="Take photo"></button>
+      <button class="btn small flip" id="btnFlip">Flip</button>
     </div>
-    <button class="shutter" id="shutter" aria-label="Take photo"></button>
-    <button class="btn small flip" id="btnFlip">Flip</button>
-  </div>
-
-  <div class="hint" id="hint"></div>
-  <div class="masks" id="masks" role="listbox" aria-label="Masks"></div>
-
-  <div class="actions" id="actions">
-    <button class="btn" id="btnRetake">Back to camera</button>
-    <button class="btn primary" id="btnSave">Save photo</button>
+    <div class="actions" id="actions">
+      <button class="btn" id="btnRetake">Back to camera</button>
+      <button class="btn primary" id="btnSave">Save photo</button>
+    </div>
+    <div class="masks" id="masks" role="listbox" aria-label="Masks"></div>
   </div>
 </div>
 <input type="file" id="file" accept="image/*" hidden>
@@ -83,6 +91,31 @@ const JAW=[454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,5
 const BROW_R=[70,63,105,66,107], BROW_L=[336,296,334,293,300];          // image-left brow, image-right brow (front camera, mirrored)
 const EYE_R=[33,246,161,160,159,158,157,173,133,155,154,153,145,144,163,7];
 const EYE_L=[362,398,384,385,386,387,388,466,263,249,390,373,374,380,381,382];
+const FACE_OVAL=[10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
+const LIPS=[61,185,40,39,37,0,267,269,270,409,291,375,321,405,314,17,84,181,91,146];
+
+// ---------- Face mesh ----------
+// The MediaPipe canonical face model: 468 points, 898 triangles, and the UV map that
+// TikTok and Snapchat style filters paint onto. Packed as base64 Uint16.
+// xy: the canonical face in a 3:4 frame (reference face for thumbnails and previews).
+// uv: where each point sits on the mask texture. tri: the triangles, three indices each.
+const MESH=(()=>{
+  const u16=b=>new Uint16Array(Uint8Array.from(atob(b),c=>c.charCodeAt(0)).buffer);
+  const xy=u16("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"), uv=u16("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"), tri=u16("rQCbAIUA9gAhAAcAfgGOAWoBBwHSAfkANAGfAUQBTgBfAL8AZAGFAQgBfwAiAKIAcAEIAYUBiwCiACIACwEAAC4BJQBIAAAACwAuAQAACwAAAEgAXQHDAV4BeAB5AOcAxAFeAcMB6ADnAHkACwEuAQ0BJQAnAEgALwENAS4BSQBIACcAZQFXAV4BgAB5AHIAFQFeAVcBLwByAHkAXgHEAWUBeQCAAOgAxQFlAcQB6QDoAIAAKwFNASkBRQBDAGgATAEpAU0BZwBoAEMArwCYAIwBrwCrAJgAeQGMAZgAlACYAKsAfQGAAX4BmgCbAJ0AjgF+AYABrQCdAJsAGAFbAUoBMgBlAHYAXAFKAVsBdwB2AGUADQEvAQ4BJwAoAEkAMAEOAS8BSgBJACgACQBQAZcACQCXAGsAUQGXAFABbABrAJcAWAEWAWgBcwCDADAAFwFoARYBMQAwAIMABgGvAaIBIADCANMAqAGiAa8BzADTAMIAMAGYAQ4BSgAoALgAmQEOAZgBuQC4ACgAEAE2AZcBKgC3AFAAnwGXATYBvwBQALcAQgEOAZoBXAC6ACgAmQGaAQ4BuQAoALoAWwHBAVwBdgB3AOUAwgFcAcEB5gDlAHcAsgGwAa4B1gDSANQApgGuAbABygDUANIAOQE6ARIAUwASAFQAEQASADoBEQBUABIAMwF3ATIBTQBMAJIAIwEyAXcBPQCSAEwAAwGDAQQBHQAeAKAAhAEEAYMBoQCgAB4AHgGeAYABOACdAL4AjgGAAZ4BrQC+AJ0AogGoAZYBwgC2AMwATwGWAagBagDMALYAbwGgAWwBigCHAMAAsgFsAaAB1gDAAIcAhwGnAUcBpQBiAMsAZgFHAacBgQDLAGIAKgEtARwBRAA2AEcA+wAcAS0BFQBHADYABAATAQUABAAFAC0AGQEFABMBMwAtAAUA/gB1Af0AGAAXAJAAdgH9AHUBkQCQABcAQAFBATMBWgBNAFsAdwEzAUEBkgBbAE0AGAGpAZsBMgC7AM0AqwGbAakBzwDNALsApQE5AcgAyQDIAFMAEgDIADkBEgBTAMgATwFBAZYBagC2AFsAlQGWAUEBtQBbALYAlQFBAZQBtQC0AFsAQAGUAUEBWgBbALQAEQA6ARAAEQAQAFQAOwEQADoBVQBUABAAqQEKAaoBzQDOACQApwGqAQoBywAkAM4AcQGMAZABjACwAKsAeQGQAYwBlACrALAAhwENAUIBpQBcACcADgFCAQ0BKAAnAFwAoQHRAZ0BwQC9APUA0AGdAdEB9AD1AL0AAQECAYIBGwCfABwAgQGCAQIBngAcAJ8ABAGEAdMBHgD3AKEA0gHTAYQB9gChAPcA+ADIAaMBAwDEAOwAjwGjAcgBrgDsAMQATQEqAUwBaABnAEQAHAFMASoBNgBEAGcAHQEIAKEBNwDBAAgAqAChAQgAqAAIAMEAVAEFAVoBbwB1AB8AwAFaAQUB5AAfAHUAHQGhAbkBNwDdAMEAnQG5AaEBvQDBAN0ARwHMAUYBYgBhAPAASAFGAcwBYwDwAGEAFQFjAUkBLwBkAH4AcwFJAWMBjgB+AGQANQGIAbYBTwDaAKYAtwG2AYgB2wCmANoAfQF+AQABmgAaAJsAVQEAAX4BcACbABoAaAEXAaQBgwDGADEArQGkARcB0QAxAMYAbQFsAXsBiACWAIcAigF7AWwBqQCHAJYAYwEVAbUBfgDZAC8AVwG1ARUBcgAvANkAuwG8ARoB3wA0AOAAGwEaAbwBNQDgADQAGQETAWsBMwCGAC0AuAFrARMB3AAtAIYArwEGAYsB0wCqACAAcQGLAQYBjAAgAKoAUQErAVIBbABtAEUAKQFSASsBQwBFAG0ATwERAUEBagBbACsAdwFBAREBkgArAFsAXAHCAV0BdwB4AOYAwwFdAcIB5wDmAHgA0wFnAVYB9wBxAIIAvgFWAWcB4gCCAHEAGgEbAU4BNABpADUAJQFOARsBPwA1AGkA+gDKAc4BFADyAO4AzQHOAcoB8QDuAPIAFAFhASwBLgBGAHwAfwEsAWEBnAB8AEYARQEkAUQBYABfAD4ANAFEASQBTgA+AF8AGwEUASUBNQA/AC4ALAElARQBRgAuAD8AvwEIAVkB4wB0ACIAdAFZAQgBjwAiAHQAYAFZAVoBewB1AHQAVAFaAVkBbwB0AHUAAQATABIBAQAsABMAYgESARMAfQATACwA+AAZAcgBAwDsADMAawHIARkBhgAzAOwAqQGqAasBzQDPAM4AtAGrAaoB2ADOAM8AfAF9AfwAmQAWAJoAAAH8AH0BGgCaABYAhwGJAQ0BpQAnAKcACwENAYkBJQCnACcAxwCsAcgAxwDIANAApQHIAKwByQDQAMgASgFJAQoBZQAkAGQAcwEKAUkBjgBkACQApgGwAREBygArANQAHwERAbABOQDUACsAIgH6AEgBPABjABQAzgFIAfoA8gAUAGMAAgEeAYEBHACeADgAgAGBAR4BnQA4AJ4AVgG+AWEBcQB8AOIACQFhAb4BIwDiAHwAAQGCAQMBGwAdAJ8AgwEDAYIBoACfAB0ArgGmAa8B0gDTAMoAqAGvAaYBzADKANMAvQFWARQB4QAuAHEAYQEUAVYBfABxAC4AqAGmAU8BzABqAMoAEQFPAaYBKwDKAGoAMgEkATMBTABNAD4ARQEzASQBYAA+AE0AbgG/AWABiQB7AOMAWQFgAb8BdADjAHsALgEMAS8BSABJACYADwEvAQwBKQAmAEkAcwFmAQoBjgAkAIEApwEKAWYBywCBACQARwEmAcwBYgDwAEAAxwHMASYB6wBAAPAAJgFLARYBQAAwAGYAFwEWAUsBMQBmADAALwEPATABSQBKACkAEAEwAQ8BKgApAEoAqwG0AbIBzwDWANgAsAGyAbQB1ADYANYAMAEQAZgBSgC4ACoAlwGYARABtwAqALgAigGuAYsBqQCqANIArwGLAa4B0wDSAKoAiwFxAXoBqgCVAIwAkAF6AXEBsACMAJUAKAFOASsBQgBFAGkATQErAU4BaABpAEUAoQGoAF8BwQB6AKgABgBfAagABgCoAHoAGAGbAWABMgB7ALsAeAFgAZsBkwC7AHsAPwFAAUUBWQBgAFoAMwFFAUABTQBaAGAAHQEnAVABNwBrAEEAKAFQAScBQgBBAGsAlAFAAZMBtACzAFoAPwGTAUABWQBaALMASgFcAUkBZQBkAHcAXQFJAVwBeAB3AGQATgElAU0BaQBoAD8AKgFNASUBRAA/AGgAQwHGAW4BXQCJAOoAvwFuAcYB4wDqAIkAEAA7AQ8AEAAPAFUAPAEPADsBVgBVAA8ArQEXAWYB0QCBADEASwFmARcBZgAxAIEADwA8AQ4ADwAOAFYAPQEOADwBVwBWAA4ACAAdAQkACAAJADcAUAEJAB0BawA3AAkASQFdARUBZAAvAHgAXgEVAV0BeQB4AC8A/AD9AHwBFgCZABcAdgF8Af0AkQAXAJkAkgGTAT4BsgBYALMAPwE+AZMBWQCzAFgAXwEGAKMBegDEAAYAxQCjAQYAxQAGAMQARAE+AUUBXwBgAFgAPwFFAT4BWQBYAGAAjQFvAW0BrACIAIoAbAFtAW8BhwCKAIgAIAGzAY0BOgCsANcAbwGNAbMBigDXAKwAtgG3AVgB2gBzANsAFgFYAbcBMADbAHMADwE3ARABKQAqAFEANgEQATcBUABRACoABQAZAcMABQDDADMA+ADDABkBAwAzAMMAEQEfAXcBKwCSADkAIwF3AR8BPQA5AJIAjAGsAa8AqwCvANAAxwCvAKwBxwDQAK8ADAE4AQ8BJgApAFIANwEPATgBUQBSACkAvAG9ARsB4AA1AOEAFAEbAb0BLgDhADUA/gBTAXUBGACQAG4AhgF1AVMBowBuAJAAJwEaASgBQQBCADQATgEoARoBaQA0AEIAWgHAAVsBdQB2AOQAwQFbAcAB5QDkAHYAxgFkAb8B6gDjAH8ACAG/AWQBIgB/AOMAUAEoAVEBawBsAEIAKwFRASgBRQBCAGwAlwBRAQoAlwAKAGwAUgEKAFEBbQBsAAoAFgG3ASYBMABAANsAxwEmAbcB6wDbAEAAlwGfASQBtwA+AL8ANAEkAZ8BTgC/AD4AZgFzAa0BgQDRAI4AYwGtAXMBfgCOANEAWQF0AVQBdABvAI8ACQFUAXQBIwCPAG8AhAGGAdIBoQD2AKMA+QDSAYYBBwCjAPYAYAFaARgBewAyAHUAWwEYAVoBdgB1ADIAJwG6ARoBQQA0AN4AuwEaAboB3wDeADQAEwBeAGIBEwB9AF4AcgFiAV4AjQBeAH0AJwEdAboBQQDeADcAuQG6AR0B3QA3AN4AowHFAPgAxAADAMUAwwD4AMUAwwDFAAMAZwEHAf8AggAZACEA+QD/AAcBBwAhABkAEwESAbgBLQDcACwAyQG4ARIB7QAsANwALAF/AS0BRgBHAJwAcAEtAX8BiwCcAEcAoQFfAdEBwQD1AHoAnAHRAV8BvAB6APUA0gEHAdMB9gD3ACEAZwHTAQcBggAhAPcAhQH7AHABogCLABUALQFwAfsARwAVAIsAdgGCAXwBkQCZAJ8AgQF8AYIBngCfAJkAewGKAXoBlgCVAKkAiwF6AYoBqgCpAJUAXwGjAZwBegC8AMQAjwGcAaMBrgDEALwAqgFCAbQBzgDYAFwAmgG0AUIBugBcANgAgwF1AYQBoAChAJAAhgGEAXUBowCQAKEAiQFGAaQApwCkAGEAAgCkAEYBAgBhAKQAYgFyAc0BfQDxAI0AzgHNAXIB8gCNAPEAAAALAaQAAACkACUAiQGkAAsBpwAlAKQACwAMAC4BCwBIAAwADAEuAQwAJgAMAEgAggF2AYMBnwCgAJEAdQGDAXYBkACRAKAADAANAAwBDAAmAA0AOAEMAQ0AUgANACYAJQEsASoBPwBEAEYALQEqASwBRwBGAEQAVAEJAQUBbwAfACMAvgEFAQkB4gAjAB8AfAGBAX0BmQCaAJ4AgAF9AYEBnQCeAJoAGAFKAakBMgDNAGUACgGpAUoBJABlAM0ApwGHAaoBywDOAKUAQgGqAYcBXAClAM4ArQFjAaQB0QDGAH4AtQGkAWMB2QB+AMYAhwFHAYkBpQCnAGIARgGJAUcBYQBiAKcAyQG2AbgB7QDcANoAWAG4AbYBcwDaANwAfgFqAVUBmwBwAIUAzwFVAWoB8wCFAHAAyQHNAcsB7QDvAPEAygHLAc0B7gDxAO8AsgGuAWwB1gCHANIAigFsAa4BqQDSAIcAngHPAY4BvgCtAPMAagGOAc8BhQDzAK0ABgGsAXEBIACMANAAjAFxAawBqwDQAIwAyQESAc0B7QDxACwAYgHNARIBfQAsAPEAPAGTAT0BVgBXALMAkgE9AZMBsgCzAFcAOwGUATwBVQBWALQAkwE8AZQBswC0AFYAOgGVATsBVABVALUAlAE7AZUBtAC1AFUAOQGWAToBUwBUALYAlQE6AZYBtQC2AFQAogGWAaUBwgDJALYAOQGlAZYBUwC2AMkAbgGRAUMBiQBdALEAaQFDAZEBhACxAF0AmAGXATIBuABMALcAJAEyAZcBPgC3AEwAmAEyAZkBuAC5AEwAIwGZATIBPQBMALkAmgGZAR8BugA5ALkAIwEfAZkBPQC5ADkAtAGaAbAB2ADUALoAHwGwAZoBOQC6ANQAsgGgAasB1gDPAMAAmwGrAaABuwDAAM8ACAFwAXQBIgCPAIsAfwF0AXABnACLAI8AyQHLAbYB7QDaAO8ANQG2AcsBTwDvANoAYAF4AW4BewCJAJMAkQFuAXgBsQCTAIkABAABABMBBAAtAAEAEgETAQEALAABAC0ArAEGAaUB0ADJACAAogGlAQYBwgAgAMkARwFmASYBYgBAAIEASwEmAWYBZgCBAEAAbwGzAaABigDAANcAsQGgAbMB1QDXAMAAxwG3ASEB6wA7ANsAiAEhAbcBpgDbADsASAHOAUYBYwBhAPIAcgFGAc4BjQDyAGEARgFyAQIAYQACAI0AXgACAHIBXgCNAAIAzAHHATEB8ABLAOsAIQExAccBOwDrAEsAwAFTAcEB5ADlAG4A/gDBAVMBGABuAOUABQG+Af8AHwAZAOIAZwH/AL4BggDiABkAwQH+AMIB5QDmABgA/QDCAf4AFwAYAOYAwgH9AMMB5gDnABcA/ADDAf0AFgAXAOcAwwH8AMQB5wDoABYAAAHEAfwAGgAWAOgAAAFVAcQBGgDoAHAAxQHEAVUB6QBwAOgAnQHQAZ4BvQC+APQAzwGeAdAB8wD0AL4AuQGdAR4B3QA4AL0AngEeAZ0BvgC9ADgAuQEeAboB3QDeADgAAgG6AR4BHAA4AN4AugECAbsB3gDfABwAAQG7AQIBGwAcAN8AvAG7AQMB4AAdAN8AAQEDAbsBGwDfAB0AAwEEAbwBHQDgAB4AvQG8AQQB4QAeAOAABAHTAb0BHgDhAPcAVgG9AdMBcQD3AOEA+gA1AcoBFADuAE8AywHKATUB7wBPAO4AIgExAYgBPACmAEsAIQGIATEBOwBLAKYAzAExAUgB8ABjAEsAIgFIATEBPABLAGMAeAGxAZEBkwCxANUAswGRAbEB1wDVALEA+gAiATUBFABPADwAiAE1ASIBpgA8AE8AmwGgAXgBuwCTAMAAsQF4AaAB1QDAAJMAVQHPAcUBcADpAPMA0AHFAc8B9ADzAOkAxQHQAWUB6QCAAPQA0QFlAdAB9QD0AIAAnAFXAdEBvAD1AHIAZQHRAVcBgAByAPUAtQFXAY8B2QCuAHIAnAGPAVcBvAByAK4AawG4AWgBhgCDANwAWAFoAbgBcwDcAIMAyAGkAY8B7ACuAMYAtQGPAaQB2QDGAK4AyAFrAaQB7ADGAIYAaAGkAWsBgwCGAMYAaQGRASABhAA6ALEAswEgAZEB1wCxADoAYQEJAX8BfACcACMAdAF/AQkBjwAjAJwA/wD5AFMBGQBuAAcAhgFTAfkAowAHAG4ABQH/AMABHwDkABkAUwHAAf8AbgAZAOQADgA9AQ0ADgANAFcAOAENAD0BUgBXAA0APQGSATgBVwBSALIANwE4AZIBUQCyAFIAkgE+ATcBsgBRAFgANgE3AT4BUABYAFEAPgFEATYBWABQAF8AnwE2AUQBvwBfAFAA");
+  return {xy:Float32Array.from(xy,v=>v/65535), uv:Float32Array.from(uv,v=>v/65535), tri};
+})();
+// Landmark arrays from the canonical model, with the ten iris points synthesised so
+// anything that reads 468 or 473 still works.
+function withIrises(L){
+  for(const ids of [EYE_R,EYE_L]){
+    const c=ids.reduce((a,i)=>({x:a.x+L[i].x/ids.length,y:a.y+L[i].y/ids.length}),{x:0,y:0});
+    const r=Math.hypot(L[ids[0]].x-L[ids[8]].x,L[ids[0]].y-L[ids[8]].y)*.22;
+    L.push({x:c.x,y:c.y,z:0}); for(const a of [0,1.5708,3.1416,4.7124]) L.push({x:c.x+Math.cos(a)*r,y:c.y+Math.sin(a)*r,z:0});
+  }
+  return L;
+}
+const REF=withIrises(Array.from({length:468},(_,i)=>({x:MESH.xy[2*i],y:MESH.xy[2*i+1],z:0})));
+const UVL=withIrises(Array.from({length:468},(_,i)=>({x:MESH.uv[2*i],y:MESH.uv[2*i+1],z:0})));
 
 function geom(L,W,H){
   const P=i=>({x:L[i].x*W,y:L[i].y*H});
@@ -99,127 +132,252 @@ function geom(L,W,H){
 function path(c,pts,close=true){ c.beginPath(); pts.forEach((p,i)=>i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y)); if(close) c.closePath(); }
 function addPath(c,pts){ pts.forEach((p,i)=>i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y)); c.closePath(); }
 
+// What makes a flat drawing read as a sticker: edges on the silhouette, even colour, no shadow.
+// inset: pull an outline loop towards its centre so the mask edge sits on skin, not on the face outline
+function inset(g,ids,k){ const c=g.centroid(ids); return ids.map(i=>g.lerp(g.P(i),c,k)); }
+// shadow: run a draw call with a soft drop shadow, so the mask edge casts onto the face below it
+function shadow(c,g,fn,a=.4){ c.save(); c.shadowColor=`rgba(0,0,0,${a})`; c.shadowBlur=g.fw*.06; c.shadowOffsetY=g.fh*.015; fn(); c.restore(); }
+// shade: darken a shape towards its lower edge and towards both cheeks, so it curves with the face
+function shade(c,g,pathFn,top,bottom,k=.28){
+  const grey=t=>{ const v=Math.round(255*(1-k*t)); return `rgb(${v},${v},${v})`; };
+  c.save(); pathFn(); c.clip(); c.globalCompositeOperation='multiply';
+  let gr=c.createLinearGradient(top.x,top.y,bottom.x,bottom.y); gr.addColorStop(0,grey(0)); gr.addColorStop(1,grey(1));
+  c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4);
+  const l=g.P(234), r=g.P(454);
+  gr=c.createLinearGradient(l.x,l.y,r.x,r.y); gr.addColorStop(0,grey(.9)); gr.addColorStop(.3,grey(0)); gr.addColorStop(.7,grey(0)); gr.addColorStop(1,grey(.9));
+  c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4);
+  c.restore();
+}
+
 // Eye-region outline shared by Hero and Masquerade
 function eyeShape(g,lift,wing){
   const {P,off}=g;
   const pts=[];
-  if(wing) pts.push(off(P(127),.15,.03));
-  pts.push(off(P(127),0,-.005));
+  if(wing) pts.push(off(P(162),-.01,.06));
+  pts.push(off(P(127),0,.03));
   BROW_R.forEach(i=>pts.push(off(P(i),lift,0)));
   pts.push(off(P(9),lift*.8,0));
   BROW_L.forEach(i=>pts.push(off(P(i),lift,0)));
-  pts.push(off(P(356),0,.005));
-  if(wing) pts.push(off(P(356),.15,-.03));
+  pts.push(off(P(356),0,-.03));
+  if(wing) pts.push(off(P(389),-.01,-.06));
   [345,346,347].forEach(i=>pts.push(off(P(i),-.01,0)));
   pts.push(P(197));
   [118,117,116].forEach(i=>pts.push(off(P(i),-.01,0)));
   return pts;
 }
 
+// ---------- Masks ----------
+// Two kinds of drawing per mask:
+//   tex(c,g)  paints the part that sits ON the face. It is drawn once into the face's UV
+//             texture space, then warped onto all 898 mesh triangles every frame, so it
+//             bulges over the nose, wraps the cheeks and picks up the real light on the skin.
+//   over(c,g) paints anything that leaves the face (ear loops, cat ears, glasses arms) or
+//             is rigid and should not bend with skin (sunglasses). Drawn flat in screen space.
 const MASKS=[
-  {id:'none',name:'None',draw(){}},
+  {id:'none',name:'None'},
 
-  {id:'surgical',name:'Surgical',draw(c,g){
-    const {P,off,lerp,fw}=g;
-    const lC=off(P(234),-.05,0), rC=off(P(454),-.05,0), t=off(P(197),.02,0);
-    c.lineCap='round'; c.strokeStyle='#7CC1DE'; c.lineWidth=fw*.02;
-    for(const [a,ctl,b] of [[lC,off(lC,.06,-.3),P(172)],[rC,off(rC,.06,.3),P(397)]]){
-      c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(ctl.x,ctl.y,b.x,b.y); c.stroke();
-    }
-    c.fillStyle='#9FD8EF'; c.strokeStyle='#6DB4D3'; c.lineWidth=fw*.012;
-    c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y);
-    JAW.slice(1).forEach(i=>c.lineTo(P(i).x,P(i).y)); c.lineTo(lC.x,lC.y); c.closePath(); c.fill(); c.stroke();
-    c.strokeStyle='rgba(60,120,150,.45)';
-    for(const k of [.3,.55,.8]){ const a=lerp(P(234),P(58),k), b=lerp(P(454),P(288),k), m=off(lerp(a,b,.5),-.03,0);
-      c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(m.x,m.y,b.x,b.y); c.stroke(); }
-    // wire sits just under the fabric edge: the quadratic peak, nudged down the face
-    const peak=off({x:.25*lC.x+.5*t.x+.25*rC.x,y:.25*lC.y+.5*t.y+.25*rC.y},-.035,0);
-    c.save(); c.translate(peak.x,peak.y); c.rotate(g.roll); c.fillStyle='#5E9DBA'; c.beginPath(); c.roundRect(-fw*.12,-fw*.02,fw*.24,fw*.04,fw*.02); c.fill(); c.restore();
-  }},
+  {id:'surgical',name:'Surgical',
+    tex(c,g){
+      const {P,off,lerp,fw}=g;
+      const J=inset(g,JAW,.08), j=i=>J[JAW.indexOf(i)];
+      const lC=off(j(234),-.05,0), rC=off(j(454),-.05,0), t=off(P(197),.02,0);
+      const body=()=>{ c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); };
+      c.fillStyle='#A6DBF0';
+      shadow(c,g,()=>{ body(); c.fill(); });
+      shade(c,g,body,t,off(j(152),0,0),.3);
+      c.strokeStyle='rgba(40,100,130,.3)'; c.lineWidth=fw*.008;
+      for(const k of [.3,.55,.8]){ const a=lerp(lC,j(58),k), b=lerp(rC,j(288),k), m=off(lerp(a,b,.5),-.03,0);
+        c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(m.x,m.y,b.x,b.y); c.stroke(); }
+      c.strokeStyle='rgba(50,110,140,.35)'; c.lineWidth=fw*.006; body(); c.stroke();
+      // wire sits just under the fabric edge: the quadratic peak, nudged down the face
+      const peak=off({x:.25*lC.x+.5*t.x+.25*rC.x,y:.25*lC.y+.5*t.y+.25*rC.y},-.06,0);
+      c.save(); c.translate(peak.x,peak.y); c.rotate(g.roll); c.fillStyle='rgba(70,130,160,.7)'; c.beginPath(); c.roundRect(-fw*.11,-fw*.016,fw*.22,fw*.032,fw*.016); c.fill(); c.restore();
+    },
+    over(c,g){
+      // ear loops hug the jaw rather than swinging out into the room
+      const {off,lerp,fw}=g;
+      const J=inset(g,JAW,.08), j=i=>J[JAW.indexOf(i)];
+      const lC=off(j(234),-.05,0), rC=off(j(454),-.05,0);
+      c.lineCap='round'; c.strokeStyle='rgba(130,196,222,.9)'; c.lineWidth=fw*.014;
+      for(const [a,b,sd] of [[lC,j(132),-1],[rC,j(361),1]]){ const m=off(lerp(a,b,.5),.03,sd*.16); c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(m.x,m.y,b.x,b.y); c.stroke(); }
+    }},
 
-  {id:'hero',name:'Hero',draw(c,g){
-    c.fillStyle='#161418';
-    path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); c.fill('evenodd');
-    c.strokeStyle='rgba(255,255,255,.22)'; c.lineWidth=g.fw*.012;
-    path(c,BROW_R.concat([9],BROW_L).map(i=>g.off(g.P(i),.045,0)),false); c.stroke();
-  }},
+  {id:'hero',name:'Hero',
+    tex(c,g){
+      c.fillStyle='#161418';
+      const body=()=>{ path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); };
+      shadow(c,g,()=>{ body(); c.fill('evenodd'); });
+      c.strokeStyle='rgba(255,255,255,.22)'; c.lineWidth=g.fw*.012;
+      path(c,BROW_R.concat([9],BROW_L).map(i=>g.off(g.P(i),.045,0)),false); c.stroke();
+    }},
 
-  {id:'masquerade',name:'Masquerade',draw(c,g){
-    const {P,off,fw}=g;
-    c.fillStyle='#E9B94E'; c.strokeStyle='#8C6A1D'; c.lineWidth=fw*.012;
-    path(c,eyeShape(g,.05,true)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); c.fill('evenodd'); c.stroke();
-    c.fillStyle='#6B3FA0';
-    for(const E of [EYE_R,EYE_L]){ path(c,g.ring(E,2)); addPath(c,g.ring(E,1.6)); c.fill('evenodd'); }
-    c.fillStyle='#F9E3A1';
-    BROW_R.concat([9],BROW_L).forEach(i=>{ const p=off(P(i),.03,0); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); });
-    const j=off(P(9),.02,0); c.save(); c.translate(j.x,j.y); c.rotate(g.roll); c.fillStyle='#D33F7A';
-    c.beginPath(); c.moveTo(0,-fw*.05); c.lineTo(fw*.035,0); c.lineTo(0,fw*.05); c.lineTo(-fw*.035,0); c.closePath(); c.fill(); c.restore();
-  }},
+  {id:'masquerade',name:'Masquerade',
+    tex(c,g){
+      const {P,off,fw}=g;
+      c.fillStyle='#E9B94E'; c.strokeStyle='#8C6A1D'; c.lineWidth=fw*.01;
+      const body=()=>{ path(c,eyeShape(g,.05,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); };
+      shadow(c,g,()=>{ body(); c.fill('evenodd'); });
+      shade(c,g,()=>{ body(); },off(P(9),.06,0),P(197),.22); body(); c.stroke();
+      c.fillStyle='#6B3FA0';
+      for(const E of [EYE_R,EYE_L]){ path(c,g.ring(E,2)); addPath(c,g.ring(E,1.6)); c.fill('evenodd'); }
+      c.fillStyle='#F9E3A1';
+      BROW_R.concat([9],BROW_L).forEach(i=>{ const p=off(P(i),.03,0); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); });
+      const j=off(P(9),.02,0); c.save(); c.translate(j.x,j.y); c.rotate(g.roll); c.fillStyle='#D33F7A';
+      c.beginPath(); c.moveTo(0,-fw*.05); c.lineTo(fw*.035,0); c.lineTo(0,fw*.05); c.lineTo(-fw*.035,0); c.closePath(); c.fill(); c.restore();
+    }},
 
-  {id:'cat',name:'Cat',draw(c,g){
-    const {P,off,lerp,dist,fw}=g;
-    for(const [a,b,side] of [[54,103,-1],[284,332,1]]){
-      const base1=off(P(a),.02,side*.05), base2=off(P(b),-.01,-side*.02), apex=off(lerp(P(a),P(b),.5),.2,side*.07);
-      c.fillStyle='#2E2A2E'; path(c,[base1,apex,base2]); c.fill();
-      const m={x:(base1.x+base2.x+apex.x)/3,y:(base1.y+base2.y+apex.y)/3};
-      c.fillStyle='#F4A6C2'; path(c,[base1,apex,base2].map(p=>lerp(m,p,.6))); c.fill();
-    }
-    const n=P(4), nw=dist(P(49),P(279))*.58;
-    c.save(); c.translate(n.x,n.y); c.rotate(g.roll); c.fillStyle='#F08BAE';
-    c.beginPath(); c.moveTo(-nw,-nw*.35); c.lineTo(nw,-nw*.35); c.lineTo(0,nw*.6); c.closePath(); c.fill(); c.restore();
-    c.lineCap='round';
-    for(const s of [-1,1]) for(const [dy,ey] of [[.015,.07],[0,0],[-.015,-.07]]){
-      const a=off(n,dy,s*.17), b=off(n,ey,s*.44);
-      c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=fw*.02; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
-      c.strokeStyle='#fff'; c.lineWidth=fw*.011; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
-    }
-  }},
+  {id:'cat',name:'Cat',
+    tex(c,g){
+      const {P,off,dist,fw}=g;
+      const n=P(4), nw=dist(P(49),P(279))*.58;
+      c.save(); c.translate(n.x,n.y); c.rotate(g.roll); c.fillStyle='#F08BAE';
+      shadow(c,g,()=>{ c.beginPath(); c.moveTo(-nw,-nw*.35); c.lineTo(nw,-nw*.35); c.lineTo(0,nw*.6); c.closePath(); c.fill(); },.25); c.restore();
+      c.lineCap='round';
+      for(const s of [-1,1]) for(const [dy,ey] of [[.015,.07],[0,0],[-.015,-.07]]){
+        const a=off(n,dy,s*.17), b=off(n,ey,s*.44);
+        c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=fw*.02; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+        c.strokeStyle='#fff'; c.lineWidth=fw*.011; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+      }
+    },
+    over(c,g){
+      const {P,off,lerp}=g;
+      for(const [a,b,side] of [[54,103,-1],[284,332,1]]){
+        const base1=off(P(a),.02,side*.05), base2=off(P(b),-.01,-side*.02), apex=off(lerp(P(a),P(b),.5),.2,side*.07);
+        c.fillStyle='#2E2A2E'; shadow(c,g,()=>{ path(c,[base1,apex,base2]); c.fill(); },.3);
+        const m={x:(base1.x+base2.x+apex.x)/3,y:(base1.y+base2.y+apex.y)/3};
+        c.fillStyle='#F4A6C2'; path(c,[base1,apex,base2].map(p=>lerp(m,p,.6))); c.fill();
+      }
+    }},
 
-  {id:'shades',name:'Shades',draw(c,g){
-    const {P,off,dist,fw}=g;
-    const ew=dist(P(33),P(133))*1.9, eh=ew*.58;
-    c.lineCap='round'; c.strokeStyle='#111'; c.lineWidth=fw*.03;
-    const bridgeA=off(P(133),.02,0), bridgeB=off(P(362),.02,0);
-    c.beginPath(); c.moveTo(bridgeA.x,bridgeA.y); c.lineTo(bridgeB.x,bridgeB.y); c.stroke();
-    for(const [iris,temple] of [[468,127],[473,356]]){
-      const t=off(P(temple),.04,0), i=P(iris);
-      c.beginPath(); c.moveTo(i.x,i.y); c.lineTo(t.x,t.y); c.stroke();
-    }
-    for(const iris of [468,473]){
-      const i=P(iris); c.save(); c.translate(i.x,i.y); c.rotate(g.roll);
-      const gr=c.createLinearGradient(0,-eh/2,0,eh/2); gr.addColorStop(0,'#3C3C48'); gr.addColorStop(1,'#0B0B10');
-      c.fillStyle=gr; c.strokeStyle='#111'; c.lineWidth=fw*.025;
-      c.beginPath(); c.roundRect(-ew/2,-eh/2,ew,eh,ew*.2); c.fill(); c.stroke();
-      c.fillStyle='rgba(255,255,255,.18)'; c.beginPath(); c.ellipse(ew*.15,-eh*.22,ew*.2,eh*.12,-.4,0,7); c.fill();
+  {id:'shades',name:'Shades',
+    over(c,g){
+      const {P,off,dist,fw}=g;
+      const ew=dist(P(33),P(133))*1.9, eh=ew*.58;
+      c.lineCap='round'; c.strokeStyle='#111'; c.lineWidth=fw*.03;
+      const bridgeA=off(P(133),.02,0), bridgeB=off(P(362),.02,0);
+      c.beginPath(); c.moveTo(bridgeA.x,bridgeA.y); c.lineTo(bridgeB.x,bridgeB.y); c.stroke();
+      for(const [iris,temple] of [[468,127],[473,356]]){
+        const t=off(P(temple),.04,0), i=P(iris);
+        c.beginPath(); c.moveTo(i.x,i.y); c.lineTo(t.x,t.y); c.stroke();
+      }
+      for(const iris of [468,473]){
+        const i=P(iris); c.save(); c.translate(i.x,i.y); c.rotate(g.roll);
+        const gr=c.createLinearGradient(0,-eh/2,0,eh/2); gr.addColorStop(0,'#3C3C48'); gr.addColorStop(1,'#0B0B10');
+        c.fillStyle=gr; c.strokeStyle='#111'; c.lineWidth=fw*.025;
+        shadow(c,g,()=>{ c.beginPath(); c.roundRect(-ew/2,-eh/2,ew,eh,ew*.2); c.fill(); }); c.beginPath(); c.roundRect(-ew/2,-eh/2,ew,eh,ew*.2); c.stroke();
+        c.fillStyle='rgba(255,255,255,.18)'; c.beginPath(); c.ellipse(ew*.15,-eh*.22,ew*.2,eh*.12,-.4,0,7); c.fill();
+        c.restore();
+      }
+    }},
+
+  {id:'bandana',name:'Bandana',
+    tex(c,g){
+      const {P,off,fw}=g;
+      const J=inset(g,JAW,.06), j=i=>J[JAW.indexOf(i)];
+      const t=off(P(197),.01,0), lC=off(j(234),-.04,0), rC=off(j(454),-.04,0);
+      const q=n=>{const o=[];for(let i=1;i<n;i++){const u=i/n,k=1-u;o.push({x:k*k*lC.x+2*k*u*t.x+u*u*rC.x,y:k*k*lC.y+2*k*u*t.y+u*u*rC.y});}return o};
+      const pts=[lC,...q(8),rC,...J.slice(1,-1)];
+      c.fillStyle='#C62B3A'; shadow(c,g,()=>{ path(c,pts); c.fill(); });
+      c.save(); path(c,pts); c.clip();
+      c.fillStyle='rgba(255,255,255,.85)';
+      for(let i=-7;i<=7;i++) for(let k=0;k<10;k++){ const p=off(t,-.08*k,.1*i+(k%2?.05:0)); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); }
       c.restore();
-    }
-  }},
-
-  {id:'bandana',name:'Bandana',draw(c,g){
-    const {P,off,fw}=g;
-    const t=off(P(197),.01,0), lC=off(P(234),-.04,0), rC=off(P(454),-.04,0);
-    const q=n=>{const o=[];for(let i=1;i<n;i++){const u=i/n,k=1-u;o.push({x:k*k*lC.x+2*k*u*t.x+u*u*rC.x,y:k*k*lC.y+2*k*u*t.y+u*u*rC.y});}return o};
-    const pts=[lC,...q(8),rC,P(323),P(361),P(288),P(397),P(365),off(P(400),-.18,0),off(P(152),-.3,0),off(P(176),-.18,0),P(136),P(172),P(58),P(132),P(93)];
-    c.fillStyle='#C62B3A'; path(c,pts); c.fill();
-    c.save(); path(c,pts); c.clip();
-    c.fillStyle='rgba(255,255,255,.85)';
-    for(let i=-7;i<=7;i++) for(let j=0;j<10;j++){ const p=off(t,-.08*j,.1*i+(j%2?.05:0)); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); }
-    c.restore();
-    c.strokeStyle='#A81F2C'; c.lineWidth=g.fh*.06; c.lineCap='round';
-    c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); c.stroke();
-  }},
+      shade(c,g,()=>path(c,pts),t,j(152),.25);
+      c.strokeStyle='#A81F2C'; c.lineWidth=g.fh*.06; c.lineCap='round';
+      c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); c.stroke();
+    },
+    over(c,g){
+      // the tail that hangs below the chin, in the chin's shadow
+      const {P,off,fw}=g;
+      const J=inset(g,JAW,.06), j=i=>J[JAW.indexOf(i)];
+      const body=[j(365),off(j(400),-.18,0),off(j(152),-.3,0),off(j(176),-.18,0),j(136),j(150),j(149),j(176),j(148),j(152),j(377),j(400),j(378),j(379)];
+      c.fillStyle='#A81F2C'; shadow(c,g,()=>{ path(c,body); c.fill(); });
+      c.save(); path(c,body); c.clip(); c.fillStyle='rgba(255,255,255,.55)';
+      const t=off(P(197),.01,0);
+      for(let i=-7;i<=7;i++) for(let k=0;k<10;k++){ const p=off(t,-.08*k,.1*i+(k%2?.05:0)); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); }
+      c.restore();
+    }},
 ];
 
-// Reference face for the tray thumbnails: the landmarks the masks actually read,
-// taken from the MediaPipe canonical face model, packed as index,x,y per mille.
-const REF=(()=>{
-  const L=Array.from({length:478},()=>({x:.5,y:.5,z:0}));
-  for(const e of "0,500,600;4,500,496;7,301,389;9,500,308;10,500,190;17,500,668;21,168,289;33,292,386;37,467,597;39,433,603;40,410,613;49,423,501;54,206,248;58,186,648;61,385,632;63,267,311;66,371,301;67,335,199;70,232,331;84,467,666;91,414,649;93,147,517;103,260,217;105,313,301;107,435,304;109,411,191;116,197,447;117,254,447;118,293,455;127,138,397;132,160,581;133,413,389;136,262,732;144,328,397;145,351,399;146,397,641;148,439,806;149,350,779;150,310,761;152,500,810;153,373,399;154,393,396;155,406,392;157,393,379;158,373,376;159,351,376;160,328,377;161,312,380;162,146,336;163,312,393;172,222,698;173,406,384;176,392,795;181,438,659;185,393,622;197,500,419;234,141,456;246,301,383;249,699,389;251,832,289;263,708,386;267,533,597;269,567,603;270,590,613;279,577,501;284,794,248;288,814,648;291,615,632;293,733,311;296,629,301;297,665,199;300,768,331;314,533,666;321,586,649;323,853,517;332,740,217;334,687,301;336,565,304;338,589,191;345,803,447;346,746,447;347,707,455;356,862,397;361,840,581;362,587,389;365,738,732;373,672,397;374,649,399;375,603,641;377,561,806;378,650,779;379,690,761;380,627,399;381,607,396;382,594,392;384,607,379;385,627,376;386,649,376;387,672,377;388,688,380;389,854,336;390,688,393;397,778,698;398,594,384;400,608,795;405,562,659;409,607,622;454,859,456;466,699,383;468,352,387;473,648,387".split(';')){ const [i,x,y]=e.split(',');
-    L[+i]={x:+x/1000,y:+y/1000,z:0}; }
-  return L;
+// ---------- Mesh renderer ----------
+// Paints a mask's tex() into a 1024 texture once, then every frame warps that texture onto
+// the live face mesh in WebGL and re-lights it from the video underneath, so the mask
+// sits in the same light as the face. Falls back to flat drawing where WebGL is missing.
+const mesh=(()=>{
+  const cv=document.createElement('canvas');
+  const gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:true});
+  if(!gl) return null;
+  const VS=`attribute vec2 aPos;attribute vec2 aUv;varying vec2 vUv;varying vec2 vPos;
+    void main(){vUv=aUv;vPos=aPos;gl_Position=vec4(aPos.x*2.0-1.0,1.0-aPos.y*2.0,0.0,1.0);}`;
+  const FS=`precision mediump float;uniform sampler2D uMask;uniform sampler2D uLight;uniform float uMean;uniform float uRelight;
+    varying vec2 vUv;varying vec2 vPos;
+    void main(){
+      vec4 m=texture2D(uMask,vUv);
+      float l=dot(texture2D(uLight,vPos).rgb,vec3(.299,.587,.114));
+      float f=mix(1.0,clamp(l/max(uMean,.05),.7,1.5),uRelight);
+      gl_FragColor=vec4(m.rgb*f*m.a,m.a);
+    }`;
+  const sh=(t,src)=>{ const o=gl.createShader(t); gl.shaderSource(o,src); gl.compileShader(o); if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+  const pr=gl.createProgram(); gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS)); gl.linkProgram(pr); gl.useProgram(pr);
+  const buf=(target,data,usage)=>{ const b=gl.createBuffer(); gl.bindBuffer(target,b); gl.bufferData(target,data,usage); return b; };
+  const attr=(name,b)=>{ const a=gl.getAttribLocation(pr,name); gl.bindBuffer(gl.ARRAY_BUFFER,b); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0); };
+  const pos=new Float32Array(468*2);
+  const posB=buf(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW); attr('aPos',posB);
+  attr('aUv',buf(gl.ARRAY_BUFFER,MESH.uv,gl.STATIC_DRAW));
+  buf(gl.ELEMENT_ARRAY_BUFFER,MESH.tri,gl.STATIC_DRAW);
+  const texture=unit=>{ const t=gl.createTexture(); gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,t);
+    for(const p of ['TEXTURE_WRAP_S','TEXTURE_WRAP_T']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.CLAMP_TO_EDGE);
+    for(const p of ['TEXTURE_MIN_FILTER','TEXTURE_MAG_FILTER']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.LINEAR); return t; };
+  texture(0); texture(1);
+  gl.uniform1i(gl.getUniformLocation(pr,'uMask'),0); gl.uniform1i(gl.getUniformLocation(pr,'uLight'),1);
+  const uMean=gl.getUniformLocation(pr,'uMean'), uRelight=gl.getUniformLocation(pr,'uRelight');
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+  // The light map is the frame at 32 px wide: cheap to upload, and blurred enough that
+  // lips and brows under the mask do not print through as dark patches. Only the broad
+  // light on the face survives, which is exactly the part worth copying onto the mask.
+  const light=document.createElement('canvas'), lctx=light.getContext('2d',{willReadFrequently:true});
+  const textures=new Map();
+  function maskTexture(m){
+    if(!textures.has(m)){ const t=document.createElement('canvas'); t.width=t.height=1024; m.tex(t.getContext('2d'),geom(UVL,1024,1024)); textures.set(m,t); }
+    return textures.get(m);
+  }
+  let bound=null;
+  return {
+    canvas:cv,
+    render(faces,W,H,m,src,relight=.75){
+      if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
+      gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+      if(bound!==m){ gl.activeTexture(gl.TEXTURE0); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,maskTexture(m)); bound=m; }
+      light.width=32; light.height=Math.max(1,Math.round(32*H/W)); lctx.drawImage(src,0,0,light.width,light.height);
+      gl.activeTexture(gl.TEXTURE1); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,light);
+      const px=lctx.getImageData(0,0,light.width,light.height).data;
+      gl.uniform1f(uRelight,relight);
+      for(const L of faces){
+        let x0=1,y0=1,x1=0,y1=0;
+        for(let i=0;i<468;i++){ const p=L[i]; pos[2*i]=p.x; pos[2*i+1]=p.y; if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }
+        // mean brightness of the face box in the light map, so the relight is relative to this face, not to a fixed grey
+        let sum=0,n=0;
+        for(let y=Math.floor(y0*light.height);y<Math.ceil(y1*light.height);y++) for(let x=Math.floor(x0*light.width);x<Math.ceil(x1*light.width);x++){
+          const k=4*(y*light.width+x); sum+=.299*px[k]+.587*px[k+1]+.114*px[k+2]; n++; }
+        gl.uniform1f(uMean,n?sum/n/255:.5);
+        gl.bindBuffer(gl.ARRAY_BUFFER,posB); gl.bufferData(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW);
+        gl.drawElements(gl.TRIANGLES,MESH.tri.length,gl.UNSIGNED_SHORT,0);
+      }
+    }
+  };
 })();
-const FACE_OVAL=[10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
-const LIPS=[61,185,40,39,37,0,267,269,270,409,291,375,321,405,314,17,84,181,91,146];
+
+// Draw mask m for every face onto c. src is whatever frame c already shows (video, photo, reference face).
+function composite(c,faces,W,H,m,src){
+  if(!faces.length) return;
+  if(m.tex){
+    if(mesh){ mesh.render(faces,W,H,m,src); c.drawImage(mesh.canvas,0,0); }
+    else for(const L of faces) m.tex(c,geom(L,W,H));
+  }
+  if(m.over) for(const L of faces) m.over(c,geom(L,W,H));
+}
+
+// Reference face drawn from the canonical landmarks. Used for the tray thumbnails and by tools/preview.mjs.
 function refFace(c,g){
   const {P,fw}=g;
   const fill=(ids,style)=>{ c.fillStyle=style; path(c,ids.map(P)); c.fill(); };
@@ -235,6 +393,7 @@ function refFace(c,g){
 const $=id=>document.getElementById(id);
 const stage=$('stage'), video=$('video'), out=$('out'), ctx=out.getContext('2d'), hint=$('hint'), toast=$('toast');
 let landmarker=null, stream=null, facing='user', running=false, lastT=-1, result=null, current=MASKS[1];
+let source=video;                                  // what draw() paints under the mask: the video, a frozen frame or a photo
 // Detection jitters a pixel or two per frame. Ease each landmark towards its new
 // position instead of snapping, so the masks sit still on a still face.
 let prev=null;
@@ -258,12 +417,24 @@ try{
 }
 
 // ---------- Camera ----------
+const portraitScreen=()=>innerHeight>innerWidth;
+async function openStream(swap){
+  const tall=portraitScreen()!==swap;
+  return navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:tall?1080:1920},height:{ideal:tall?1920:1080}},audio:false});
+}
 async function startCamera(){
   stopCamera();
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1280},height:{ideal:1706}},audio:false});
+    stream=await openStream(false);
     video.srcObject=stream; await video.play();
-    out.width=video.videoWidth; out.height=video.videoHeight;
+    // Some phones read width and height in sensor orientation and hand a portrait screen a
+    // landscape frame. Ask once more with the two swapped. If that fails, keep what we had.
+    if(portraitScreen() && video.videoWidth>video.videoHeight){
+      stream.getTracks().forEach(t=>t.stop());
+      try{ stream=await openStream(true); }catch{ stream=await openStream(false); }
+      video.srcObject=stream; await video.play();
+    }
+    out.width=video.videoWidth; out.height=video.videoHeight; source=video;
     if(landmarker.runningMode!=='VIDEO') await landmarker.setOptions({runningMode:'VIDEO'});
     stage.className='stage live'; $('actions').classList.remove('show');
     hint.textContent='Looking for a face…'; running=true; lastT=-1; prev=null; loop();
@@ -280,24 +451,28 @@ function loop(){
     lastT=video.currentTime;
     result=landmarker.detectForVideo(video,performance.now());
     result.faceLandmarks=smooth(result.faceLandmarks);
-    draw(video);
+    draw();
     const n=result.faceLandmarks.length;
     hint.textContent=n?'Tracking. Turn, tilt, talk, it follows.':'Looking for a face…';
   }
   requestAnimationFrame(loop);
 }
-function draw(src){
+function draw(){
   const W=out.width,H=out.height;
   ctx.save(); if(facing==='user'){ ctx.translate(W,0); ctx.scale(-1,1); }
-  ctx.drawImage(src,0,0,W,H);
-  if(result) for(const L of result.faceLandmarks) current.draw(ctx,geom(L,W,H));
+  ctx.drawImage(source,0,0,W,H);
+  if(result) composite(ctx,result.faceLandmarks,W,H,current,source);
   ctx.restore();
 }
 
 $('btnCamera').onclick=startCamera;
 $('btnFlip').onclick=()=>{ facing=facing==='user'?'environment':'user'; startCamera(); };
-$('shutter').onclick=()=>{ running=false; stage.className='stage frozen'; $('actions').classList.add('show'); hint.textContent='Frozen. Save it or go back to the camera.'; };
-$('btnRetake').onclick=()=>{ if(stream){ stage.className='stage live'; $('actions').classList.remove('show'); running=true; loop(); } else startCamera(); };
+$('shutter').onclick=()=>{
+  running=false;
+  const frozen=document.createElement('canvas'); frozen.width=out.width; frozen.height=out.height; frozen.getContext('2d').drawImage(video,0,0);
+  source=frozen; draw(); stage.className='stage frozen'; $('actions').classList.add('show'); hint.textContent='Frozen. Save it or go back to the camera.';
+};
+$('btnRetake').onclick=()=>{ if(stream){ source=video; stage.className='stage live'; $('actions').classList.remove('show'); running=true; loop(); } else startCamera(); };
 
 // ---------- Still photo ----------
 $('btnUpload').onclick=()=>$('file').click();
@@ -310,20 +485,21 @@ $('file').onchange=async e=>{
   out.width=Math.round(img.width*r); out.height=Math.round(img.height*r);
   await landmarker.setOptions({runningMode:'IMAGE'});
   const tmp=document.createElement('canvas'); tmp.width=out.width; tmp.height=out.height; tmp.getContext('2d').drawImage(img,0,0,out.width,out.height);
-  result=landmarker.detect(tmp); prev=null; facing='none'; draw(tmp);
+  result=landmarker.detect(tmp); prev=null; facing='none'; source=tmp; draw();
   stage.className='stage still'; $('actions').classList.add('show');
   hint.textContent=result.faceLandmarks.length?'Fitted to the face in the photo.':'No face found in that photo.';
   e.target.value='';
 };
 
 // ---------- Mask picker ----------
-function selectMask(m){ current=m; [...$('masks').children].forEach(b=>{ const on=b.dataset.id===m.id; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); }); if(!running&&result) draw(stage.classList.contains('still')?out:video); }
+function selectMask(m){ current=m; [...$('masks').children].forEach(b=>{ const on=b.dataset.id===m.id; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); }); if(!running&&result) draw(); }
 function thumb(m){
-  const t=document.createElement('canvas'); t.width=t.height=124;
-  const c=t.getContext('2d'), VH=126, VW=VH*.75;
+  const VH=126, VW=Math.round(VH*.75);
+  const base=document.createElement('canvas'); base.width=VW; base.height=VH;
+  refFace(base.getContext('2d'),geom(REF,VW,VH));
+  const t=document.createElement('canvas'); t.width=t.height=124; const c=t.getContext('2d');
   c.translate(62-.5*VW,68-.5*VH);           // centre the face, leave headroom for ears
-  const g=geom(REF,VW,VH);
-  refFace(c,g); m.draw(c,g);
+  c.drawImage(base,0,0); composite(c,[REF],VW,VH,m,base);
   return t;
 }
 for(const m of MASKS){
@@ -334,11 +510,23 @@ for(const m of MASKS){
 selectMask(current);
 
 // ---------- Save ----------
-$('btnSave').onclick=()=>out.toBlob(async blob=>{
-  const file=new File([blob],'masked-selfie.png',{type:'image/png'});
-  if(navigator.canShare&&navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file]}); return; }catch{} }
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='masked-selfie.png'; a.click(); say('Saved masked-selfie.png');
-},'image/png');
+// The live canvas is shown cropped to the screen (object-fit: cover). Save what the person saw, not the whole sensor frame.
+function visibleRect(){
+  const W=out.width,H=out.height;
+  if(stage.classList.contains('still')) return {x:0,y:0,w:W,h:H};
+  const r=stage.getBoundingClientRect(), s=Math.max(r.width/W,r.height/H);
+  const w=Math.min(W,r.width/s), h=Math.min(H,r.height/s);
+  return {x:(W-w)/2,y:(H-h)/2,w,h};
+}
+$('btnSave').onclick=()=>{
+  const v=visibleRect(), t=document.createElement('canvas'); t.width=Math.round(v.w); t.height=Math.round(v.h);
+  t.getContext('2d').drawImage(out,v.x,v.y,v.w,v.h,0,0,t.width,t.height);
+  t.toBlob(async blob=>{
+    const file=new File([blob],'masked-selfie.png',{type:'image/png'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file]}); return; }catch{} }
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='masked-selfie.png'; a.click(); say('Saved masked-selfie.png');
+  },'image/png');
+};
 </script>
 </body>
 </html>
