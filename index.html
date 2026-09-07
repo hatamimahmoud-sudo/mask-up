@@ -284,7 +284,7 @@ function coverPath(c,g,o={}){
     cutout(c,g,[off(t,.01,-w),off(t,.01,w),off(b,-.03,w),off(b,-.03,-w)],.4);
   }
   if(o.lips==='wide'){
-    const m=centroid(LIPS), a=lerp(P(291),P(61),1.14), b=lerp(P(61),P(291),1.14), top=rise(g,P(0),m)+.03, bot=rise(g,P(17),m)-.03;
+    const m=centroid(LIPS), a=lerp(P(291),P(61),1.2), b=lerp(P(61),P(291),1.2), top=rise(g,P(0),m)+.045, bot=rise(g,P(17),m)-.045;
     cutout(c,g,[off(a,top,0),off(b,top,0),off(b,bot,0),off(a,bot,0)],.42);
   } else if(o.lips) addPath(c,ring(LIPS,o.lips));
   if(o.nostrils&&!o.nose) for(const i of [98,327]){ const p=lerp(P(2),P(i),.55); c.moveTo(p.x+fw*.018,p.y); c.arc(p.x,p.y,fw*.018,0,7); c.closePath(); }
