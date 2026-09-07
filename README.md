@@ -5,7 +5,7 @@ Live face masks in the browser. Point the camera at yourself, pick a mask, and i
 `index.html` is the whole app. No build step, no runtime dependencies. It needs to be served over HTTPS, because the camera and the face-tracking model both require a secure origin. Add it to the home screen on a phone and it opens full screen.
 
 - **Tracking:** MediaPipe Tasks Vision Face Landmarker, 478 points per face, up to two faces.
-- **Masks:** Surgical, Hero, Masquerade, Cat, Shades, Bandana. Painted as textures onto the 898-triangle face mesh in WebGL and re-lit from the video, so they wrap the nose and cheeks, move with the mouth and sit in the same light as the face.
+- **Masks:** twenty-seven of them, from a surgical mask to a balaclava, clay and sheet skin masks, a skull, a beard and bunny ears, plus a custom one built from a picture you choose. Painted as textures onto the 898-triangle face mesh in WebGL and re-lit from the video, so they wrap the nose and cheeks, move with the mouth and sit in the same light as the face.
 - **Output:** freeze the frame, then share or download a PNG.
 
 ## Checking mask geometry
