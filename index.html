@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Mask up, live</title>
+<title>Mask up</title>
 <meta name="theme-color" content="#0E0C12">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,109 +12,139 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-180.png">
 <style>
-  :root{--bg:#26222E;--stage:#0E0C12;--ink:#F6F2EA;--muted:#A9A2B4;--accent:#FF6B8B;--accent-ink:#2A0A12;--chip:#3A3545}
+  :root{--panel:#26222E;--stage:#0E0C12;--ink:#F6F2EA;--muted:#A9A2B4;--accent:#FF6B8B;--accent-ink:#2A0A12;--chip:#3A3545;--disc:#EADFD2;--rec:#E0262E}
   *{box-sizing:border-box}
+  [hidden]{display:none!important}
   html,body{margin:0;height:100%;overflow:hidden;background:var(--stage);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
   /* The camera is the page. Everything else floats over it. */
   .stage{position:fixed;inset:0;background:var(--stage);overflow:hidden}
-  video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+  video#video{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
   canvas#out{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   .stage.still canvas#out{object-fit:contain}
-  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px 24px 200px;text-align:center}
+  video#clip{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--stage);display:none}
+  .stage.clip video#clip{display:block}
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px 24px 140px;text-align:center}
   h1{font-size:40px;line-height:1;letter-spacing:-.03em;margin:0;font-weight:800}
-  .sub{margin:0 0 18px;color:var(--muted);font-size:15px;max-width:30ch}
-  .msg{margin:0 0 6px;color:var(--muted);font-size:14px;max-width:30ch}
-  .stage.live .empty,.stage.frozen .empty,.stage.still .empty{display:none}
-  .brand{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:18px;font-weight:800;font-size:18px;letter-spacing:-.02em;text-shadow:0 1px 8px rgba(0,0,0,.7);display:none;pointer-events:none}
-  .stage.live .brand,.stage.frozen .brand,.stage.still .brand{display:block}
-  .dock{position:absolute;left:0;right:0;bottom:0;padding:28px 0 calc(env(safe-area-inset-bottom) + 6px);display:flex;flex-direction:column;gap:10px;background:linear-gradient(to top,rgba(14,12,18,.94) 0%,rgba(14,12,18,.78) 55%,rgba(14,12,18,0) 100%)}
-  .hint{font-size:13px;color:var(--muted);min-height:18px;text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+  .sub{margin:0 0 16px;color:var(--muted);font-size:15px;max-width:30ch}
+  .msg{margin:0 0 6px;color:var(--muted);font-size:15px;max-width:30ch}
+  .stage.live .empty,.stage.frozen .empty,.stage.still .empty,.stage.clip .empty{display:none}
+  .top{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:18px;right:18px;display:none;pointer-events:none}
+  .stage.live .top,.stage.frozen .top,.stage.still .top,.stage.clip .top{display:block}
+  .brand{font-weight:800;font-size:18px;letter-spacing:-.02em;text-shadow:0 1px 8px rgba(0,0,0,.7)}
+  .hint{margin-top:6px;font-size:14px;color:var(--ink);opacity:.85;min-height:18px;text-shadow:0 1px 2px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.6)}
+  .timer{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:50%;transform:translateX(-50%);background:rgba(0,0,0,.5);color:#fff;font-weight:600;font-size:14px;padding:6px 12px;border-radius:999px;display:none;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
+  .timer::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--rec);animation:blink 1s infinite}
+  .stage.recording .timer{display:flex}
+  @keyframes blink{50%{opacity:.3}}
+  .dock{position:absolute;left:0;right:0;bottom:0;padding:24px 0 calc(env(safe-area-inset-bottom) + 12px);display:flex;flex-direction:column;gap:12px;background:linear-gradient(to top,rgba(14,12,18,.94) 0%,rgba(14,12,18,.85) 60%,rgba(14,12,18,0) 100%)}
+  .modes{display:none;justify-content:center;gap:4px}
+  .stage.live .modes{display:flex}
+  .modes button{padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;color:var(--muted);background:none}
+  .modes button.on{color:var(--ink);background:rgba(255,255,255,.14)}
+  .stage.recording .modes{visibility:hidden}
   .row{position:relative;height:76px;display:none;align-items:center;justify-content:center}
   .stage.live .row{display:flex}
-  .shutter{position:relative;width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25);cursor:pointer}
-  .shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff}
+  .shutter{position:relative;width:72px;height:72px;border-radius:50%;border:5px solid #fff;background:rgba(255,255,255,.25);cursor:pointer;transition:background .15s}
+  .shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#fff;transition:all .15s}
   .shutter:active::after{inset:9px}
-  button{font:inherit;color:inherit;border:0;cursor:pointer}
-  .btn{padding:12px 20px;border-radius:999px;background:var(--chip);font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:8px}
+  .stage.video .shutter::after{background:var(--rec)}
+  .stage.recording .shutter::after{inset:18px;border-radius:6px;background:var(--rec)}
+  button{font:inherit;color:inherit;border:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .btn{padding:12px 20px;border-radius:999px;background:var(--chip);font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:8px;min-height:44px}
   .btn.primary{background:var(--accent);color:var(--accent-ink)}
-  .btn.small{padding:8px 14px;font-size:13px}
   .btn:disabled{opacity:.5;cursor:default}
-  .flip{position:absolute;right:16px;top:50%;transform:translateY(-50%)}
-  .btn:focus-visible,.shutter:focus-visible,.mask:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
-  .actions{display:none;gap:10px;padding:0 16px}
+  .btn.primary:disabled{background:var(--chip);color:var(--muted);opacity:1}
+  .flip{position:absolute;right:calc(env(safe-area-inset-right) + 16px);top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+  .flip:disabled{opacity:.35}
+  .stage.recording .flip{visibility:hidden}
+  .btn:focus-visible,.shutter:focus-visible,.mask:focus-visible,.flip:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+  .actions{display:none;gap:12px;padding:0 16px}
   .actions.show{display:flex}
-  .actions .btn{flex:1;justify-content:center}
-  .masks{display:flex;gap:12px;overflow-x:auto;padding:6px 16px 4px;scrollbar-width:none}
+  .actions .btn{flex:1;justify-content:center;min-height:48px;padding:14px 20px}
+  .actions #btnAnother{display:none}
+  .stage.still .actions #btnAnother{display:inline-flex}
+  .masks{display:flex;gap:10px;overflow-x:auto;padding:6px 16px 0;scrollbar-width:none;scroll-snap-type:x proximity;scroll-padding-inline:16px}
   .masks::-webkit-scrollbar{display:none}
-  .mask{flex:0 0 auto;width:66px;display:flex;flex-direction:column;align-items:center;gap:6px;background:none;padding:0;color:var(--muted);font-size:12px}
-  .mask canvas{width:62px;height:62px;border-radius:50%;background:#EADFD2;border:3px solid transparent;transition:transform .15s}
+  .mask{flex:0 0 auto;width:72px;padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:6px;background:none;color:var(--muted);scroll-snap-align:center}
+  .mask span{font-size:12px;line-height:1.15;height:2.3em;display:flex;align-items:flex-start;justify-content:center;text-align:center}
+  .mask canvas{width:62px;height:62px;border-radius:50%;background:var(--disc);border:3px solid transparent;transition:transform .15s}
   .mask.on canvas{border-color:var(--accent);transform:scale(1.1)}
-  .mask.on{color:var(--ink);font-weight:600}
+  .mask.on{color:var(--ink)}
+  .sep{flex:0 0 auto;width:1px;height:40px;margin-top:15px;background:rgba(255,255,255,.18)}
   .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;z-index:3}
-  .sheet[hidden],.result[hidden]{display:none}
-  .panel{width:100%;max-width:480px;background:var(--bg);border-radius:22px 22px 0 0;padding:20px 20px calc(env(safe-area-inset-bottom) + 20px);display:flex;flex-direction:column;gap:12px;max-height:88vh;overflow:auto}
-  h2{margin:0;font-size:22px;letter-spacing:-.02em}
-  .row2{display:flex;gap:10px}
-  .row2 .btn{flex:1;justify-content:center}
-  .field{flex:1;min-width:0;font:inherit;padding:12px 14px;border-radius:12px;border:0;background:var(--chip);color:var(--ink)}
+  .panel{width:100%;max-width:480px;background:var(--panel);border-radius:22px 22px 0 0;padding:20px 20px calc(env(safe-area-inset-bottom) + 20px);display:flex;flex-direction:column;gap:12px;max-height:88vh;overflow:auto}
+  h2{margin:0;font-size:22px;letter-spacing:-.02em;font-weight:800}
+  .row2{display:flex;gap:12px}
+  .row2 .btn{flex:1;justify-content:center;min-height:48px;padding:14px 20px}
+  .field{flex:1;min-width:0;font:inherit;font-size:16px;padding:12px 18px;min-height:48px;border-radius:999px;border:0;background:var(--chip);color:var(--ink)}
   .field::placeholder{color:var(--muted)}
   .result{display:flex;gap:16px;align-items:center}
-  #customPreview{width:96px;height:96px;border-radius:50%;background:#EADFD2;flex:0 0 auto}
-  .opts{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--muted);flex:1}
-  .opts label{display:flex;justify-content:space-between;align-items:center;gap:10px}
-  select{font:inherit;font-size:13px;padding:6px 10px;border-radius:8px;border:0;background:var(--chip);color:var(--ink)}
-  .swatches{display:flex;gap:8px;justify-content:flex-end}
-  .swatches input{width:34px;height:34px;border:0;border-radius:50%;padding:0;background:none;cursor:pointer}
-  .swatches input::-webkit-color-swatch-wrapper{padding:0}
+  #customPreview{width:96px;height:96px;border-radius:50%;background:var(--disc);flex:0 0 auto}
+  .opts{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted);flex:1}
+  .opts label{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px}
+  select{font:inherit;font-size:16px;padding:8px 12px;min-height:44px;border-radius:10px;border:0;background:var(--chip);color:var(--ink)}
+  .swatches{display:flex;gap:4px;justify-content:flex-end}
+  .swatches input{width:44px;height:44px;border:0;border-radius:50%;padding:0;background:none;cursor:pointer}
+  .swatches input::-webkit-color-swatch-wrapper{padding:5px}
   .swatches input::-webkit-color-swatch{border:2px solid rgba(255,255,255,.25);border-radius:50%}
   .panel .msg{margin:0;max-width:none;text-align:left}
-  .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 16px);transform:translateX(-50%);background:var(--ink);color:#1a1720;padding:10px 16px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center;z-index:2}
+  .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 16px);transform:translateX(-50%);background:var(--ink);color:var(--stage);padding:10px 16px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center;z-index:2}
   .toast.show{opacity:1}
-  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
 <div class="stage" id="stage">
   <video id="video" playsinline autoplay muted></video>
   <canvas id="out"></canvas>
+  <video id="clip" playsinline autoplay loop controls></video>
   <div class="empty">
     <h1>Mask up.</h1>
-    <p class="sub">Live masks that follow the shape of your face. The rest of the frame stays untouched.</p>
-    <p class="msg" id="loadMsg">Loading face tracking…</p>
+    <p class="sub">Live masks that follow the shape of your face. Everything stays on your phone.</p>
+    <p class="msg" id="loadMsg">Getting face tracking ready. This takes a moment the first time.</p>
     <button class="btn primary" id="btnCamera" disabled>Start camera</button>
     <button class="btn" id="btnUpload" disabled>Choose a photo</button>
+    <button class="btn" id="btnReload" hidden>Reload</button>
   </div>
-  <div class="brand" aria-hidden="true">Mask up.</div>
+  <div class="top">
+    <div class="brand" aria-hidden="true">Mask up.</div>
+    <div class="hint" id="hint" aria-live="polite"></div>
+  </div>
+  <div class="timer" id="timer">0:00</div>
   <div class="dock">
-    <div class="hint" id="hint"></div>
+    <div class="modes" role="tablist" aria-label="Capture mode">
+      <button class="on" data-mode="photo" role="tab" aria-selected="true">Photo</button>
+      <button data-mode="video" role="tab" aria-selected="false">Video</button>
+    </div>
     <div class="row">
       <button class="shutter" id="shutter" aria-label="Take photo"></button>
-      <button class="btn small flip" id="btnFlip">Flip</button>
+      <button class="flip" id="btnFlip" aria-label="Switch camera"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 0 1-14.9 4M4 12a8 8 0 0 1 14.9-4"/><path d="M5 20v-4h4M19 4v4h-4"/></svg></button>
     </div>
     <div class="actions" id="actions">
-      <button class="btn" id="btnRetake">Back to camera</button>
+      <button class="btn" id="btnRetake">Retake</button>
+      <button class="btn" id="btnAnother">Choose another</button>
       <button class="btn primary" id="btnSave">Save photo</button>
     </div>
     <div class="masks" id="masks" role="listbox" aria-label="Masks"></div>
   </div>
 </div>
 <div class="sheet" id="sheet" hidden>
-  <div class="panel" role="dialog" aria-labelledby="sheetTitle">
-    <h2 id="sheetTitle">Make a mask like a picture</h2>
-    <p class="msg">Pick a photo of a mask you like. The app reads its colours and where it sits on the face, then builds its own version from those. A cousin, not a copy.</p>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <h2 id="sheetTitle">Make a mask from a photo</h2>
+    <p class="msg">Choose a photo of someone wearing a mask you like. The app takes its colours and where it sits, and draws its own version. Nothing from the photo is copied, and it stays on your phone.</p>
     <div class="row2">
-      <button class="btn primary" id="btnPick">Choose an image</button>
+      <button class="btn primary" id="btnPick">Choose a photo</button>
     </div>
     <div class="row2">
-      <input class="field" id="imgUrl" type="url" inputmode="url" placeholder="or paste an image link" autocomplete="off">
-      <button class="btn" id="btnFetch">Fetch</button>
+      <input class="field" id="imgUrl" type="url" inputmode="url" placeholder="Or paste a link" aria-label="Image link" autocomplete="off">
+      <button class="btn" id="btnFetch" disabled>Load</button>
     </div>
     <div class="result" id="result" hidden>
       <canvas id="customPreview" width="124" height="124"></canvas>
       <div class="opts">
         <label>Shape <select id="optCover"><option value="full">Full face</option><option value="lower">Lower face</option><option value="eyes">Eyes</option></select></label>
         <label>Pattern <select id="optPattern"><option value="plain">Plain</option><option value="dots">Dots</option><option value="stripes">Stripes</option><option value="blobs">Blobs</option><option value="knit">Knit</option></select></label>
-        <div class="swatches"><input type="color" id="col0" aria-label="Main colour"><input type="color" id="col1" aria-label="Pattern colour"><input type="color" id="col2" aria-label="Second pattern colour"></div>
+        <label>Colours <span class="swatches"><input type="color" id="col0" aria-label="Main colour"><input type="color" id="col1" aria-label="Pattern colour"><input type="color" id="col2" aria-label="Second pattern colour"></span></label>
       </div>
     </div>
     <p class="msg" id="customMsg"></p>
@@ -129,7 +159,9 @@
 <div class="toast" id="toast"></div>
 
 <script type="module">
-import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10/vision_bundle.mjs";
+
+// Older Android WebViews lack roundRect. Without this the tray never builds.
+if(!CanvasRenderingContext2D.prototype.roundRect) CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){ r=Math.min(r,w/2,h/2); this.moveTo(x+r,y); this.arcTo(x+w,y,x+w,y+h,r); this.arcTo(x+w,y+h,x,y+h,r); this.arcTo(x,y+h,x,y,r); this.arcTo(x,y,x+w,y,r); this.closePath(); };
 
 // ---------- Landmark index sets (MediaPipe Face Mesh, 478 points incl. irises) ----------
 const JAW=[454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234]; // right cheek → chin → left cheek
@@ -257,7 +289,7 @@ const MASKS=[
       c.strokeStyle='rgba(50,110,140,.35)'; c.lineWidth=fw*.006; body(); c.stroke();
       // wire sits just under the fabric edge: the quadratic peak, nudged down the face
       const peak=off({x:.25*lC.x+.5*t.x+.25*rC.x,y:.25*lC.y+.5*t.y+.25*rC.y},-.06,0);
-      c.save(); c.translate(peak.x,peak.y); c.rotate(g.roll); c.fillStyle='rgba(70,130,160,.7)'; c.beginPath(); c.roundRect(-fw*.11,-fw*.016,fw*.22,fw*.032,fw*.016); c.fill(); c.restore();
+      c.save(); c.translate(peak.x,peak.y); c.rotate(g.roll); c.fillStyle='rgba(70,130,160,.35)'; c.beginPath(); c.roundRect(-fw*.11,-fw*.006,fw*.22,fw*.012,fw*.006); c.fill(); c.restore();
     },
     over(c,g){
       // ear loops hug the jaw rather than swinging out into the room
@@ -271,7 +303,7 @@ const MASKS=[
   {id:'hero',name:'Hero',
     tex(c,g){
       c.fillStyle='#161418';
-      const body=()=>{ path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); };
+      const body=()=>{ path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.75)); addPath(c,g.ring(EYE_L,1.75)); };
       shadow(c,g,()=>{ body(); c.fill('evenodd'); });
       c.strokeStyle='rgba(255,255,255,.22)'; c.lineWidth=g.fw*.012;
       path(c,BROW_R.concat([9],BROW_L).map(i=>g.off(g.P(i),.045,0)),false); c.stroke();
@@ -280,12 +312,12 @@ const MASKS=[
   {id:'masquerade',name:'Masquerade',
     tex(c,g){
       const {P,off,fw}=g;
-      c.fillStyle='#E9B94E'; c.strokeStyle='#8C6A1D'; c.lineWidth=fw*.01;
-      const body=()=>{ path(c,eyeShape(g,.05,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); };
+      c.fillStyle='#D9A441'; c.strokeStyle='#8C6A1D'; c.lineWidth=fw*.01;
+      const body=()=>{ path(c,eyeShape(g,.05,false)); addPath(c,g.ring(EYE_R,1.75)); addPath(c,g.ring(EYE_L,1.75)); };
       shadow(c,g,()=>{ body(); c.fill('evenodd'); });
-      shade(c,g,()=>{ body(); },off(P(9),.06,0),P(197),.22); body(); c.stroke();
+      shade(c,g,()=>{ body(); },off(P(9),.06,0),P(197),.22,'evenodd'); body(); c.stroke();
       c.fillStyle='#6B3FA0';
-      for(const E of [EYE_R,EYE_L]){ path(c,g.ring(E,2)); addPath(c,g.ring(E,1.6)); c.fill('evenodd'); }
+      for(const E of [EYE_R,EYE_L]){ path(c,g.ring(E,2.1)); addPath(c,g.ring(E,1.75)); c.fill('evenodd'); }
       c.fillStyle='#F9E3A1';
       BROW_R.concat([9],BROW_L).forEach(i=>{ const p=off(P(i),.03,0); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); });
       const j=off(P(9),.02,0); c.save(); c.translate(j.x,j.y); c.rotate(g.roll); c.fillStyle='#D33F7A';
@@ -301,14 +333,14 @@ const MASKS=[
       c.lineCap='round';
       for(const s of [-1,1]) for(const [dy,ey] of [[.015,.07],[0,0],[-.015,-.07]]){
         const a=off(n,dy,s*.17), b=off(n,ey,s*.44);
-        c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=fw*.02; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+        c.strokeStyle='rgba(0,0,0,.2)'; c.lineWidth=fw*.018; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
         c.strokeStyle='#fff'; c.lineWidth=fw*.011; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
       }
     },
     over(c,g){
       const {P,off,lerp}=g;
       for(const [a,b,side] of [[54,103,-1],[284,332,1]]){
-        const base1=off(P(a),.02,side*.05), base2=off(P(b),-.01,-side*.02), apex=off(lerp(P(a),P(b),.5),.2,side*.07);
+        const base1=off(P(a),.02,side*.08), base2=off(P(b),-.01,-side*.02), apex=off(lerp(P(a),P(b),.5),.3,side*.08);
         c.fillStyle='#2E2A2E'; shadow(c,g,()=>{ path(c,[base1,apex,base2]); c.fill(); },.3);
         const m={x:(base1.x+base2.x+apex.x)/3,y:(base1.y+base2.y+apex.y)/3};
         c.fillStyle='#F4A6C2'; path(c,[base1,apex,base2].map(p=>lerp(m,p,.6))); c.fill();
@@ -317,17 +349,18 @@ const MASKS=[
 
   {id:'shades',name:'Shades',
     over(c,g){
-      const {P,off,dist,fw}=g;
-      const ew=dist(P(33),P(133))*1.9, eh=ew*.58;
+      const {P,off,dist,centroid,fw}=g;
+      const ew=dist(P(33),P(133))*2.1, eh=ew*.58;
+      const eyes=[off(centroid(EYE_R),.02,0),off(centroid(EYE_L),.02,0)];
       c.lineCap='round'; c.strokeStyle='#111'; c.lineWidth=fw*.03;
       const bridgeA=off(P(133),.02,0), bridgeB=off(P(362),.02,0);
       c.beginPath(); c.moveTo(bridgeA.x,bridgeA.y); c.lineTo(bridgeB.x,bridgeB.y); c.stroke();
-      for(const [iris,temple] of [[468,127],[473,356]]){
-        const t=off(P(temple),.04,0), i=P(iris);
+      for(const [i,temple] of [[eyes[0],127],[eyes[1],356]]){
+        const t=off(P(temple),.04,0);
         c.beginPath(); c.moveTo(i.x,i.y); c.lineTo(t.x,t.y); c.stroke();
       }
-      for(const iris of [468,473]){
-        const i=P(iris); c.save(); c.translate(i.x,i.y); c.rotate(g.roll);
+      for(const i of eyes){
+        c.save(); c.translate(i.x,i.y); c.rotate(g.roll);
         const gr=c.createLinearGradient(0,-eh/2,0,eh/2); gr.addColorStop(0,'#3C3C48'); gr.addColorStop(1,'#0B0B10');
         c.fillStyle=gr; c.strokeStyle='#111'; c.lineWidth=fw*.025;
         shadow(c,g,()=>{ c.beginPath(); c.roundRect(-ew/2,-eh/2,ew,eh,ew*.2); c.fill(); }); c.beginPath(); c.roundRect(-ew/2,-eh/2,ew,eh,ew*.2); c.stroke();
@@ -376,10 +409,10 @@ const MASKS=[
     },
     tex(c,g){
       const {ring,fw}=g;
-      c.fillStyle='#141416'; coverPath(c,g,{edge:-.03,eyes:1.45,lips:1.25}); c.fill('evenodd');
-      ribbing(c,g,()=>coverPath(c,g,{edge:-.03,eyes:1.45,lips:1.25}),.07);
+      c.fillStyle='#141416'; coverPath(c,g,{edge:-.03,eyes:1.8,lips:1.05}); c.fill('evenodd');
+      ribbing(c,g,()=>coverPath(c,g,{edge:-.03,eyes:1.8,lips:1.05}),.07);
       c.strokeStyle='#2C2C31'; c.lineWidth=fw*.012;
-      for(const E of [EYE_R,EYE_L]){ path(c,ring(E,1.45)); c.stroke(); } path(c,ring(LIPS,1.25)); c.stroke();
+      for(const E of [EYE_R,EYE_L]){ path(c,ring(E,1.8)); c.stroke(); } path(c,ring(LIPS,1.05)); c.stroke();
     }},
 
   {id:'gaiter',name:'Gaiter',
@@ -399,21 +432,22 @@ const MASKS=[
       shade(c,g,body,t,P(152),.2);
     }},
 
-  {id:'clay',name:'Clay mask',
+  {id:'clay',name:'Clay',
     tex(c,g){
       const {P,fw}=g, r=rng(7);
       const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.12,nostrils:true});
       c.fillStyle='rgba(143,175,126,.96)'; cover(); c.fill('evenodd');
-      c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(55,75,45,.35)'; c.lineWidth=fw*.004; c.lineCap='round';
-      for(let i=0;i<70;i++){ const a=g.off(P(197),(r()-.5)*.9,(r()-.5)*.95), b=g.off(a,(r()-.5)*.06,(r()-.5)*.06); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(55,75,45,.42)'; c.lineWidth=fw*.004; c.lineCap='round';
+      for(let i=0;i<11;i++){ let a=g.off(P(197),-.15+(r()-.5)*.7,(r()-.5)*.9); c.beginPath(); c.moveTo(a.x,a.y);
+        for(let k=0;k<3;k++){ a=g.off(a,(r()-.5)*.12,(r()-.5)*.12); c.lineTo(a.x,a.y); } c.stroke(); }
       c.restore();
       shade(c,g,cover,P(10),P(152),.12,'evenodd');
     }},
 
-  {id:'sheet',name:'Sheet mask',
+  {id:'sheet',name:'Sheet',
     tex(c,g){
       const {P,fw}=g, r=rng(3);
-      const cover=()=>coverPath(c,g,{edge:.04,eyes:1.5,lips:1.3,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.04,eyes:2,lips:1.3,nostrils:true});
       c.fillStyle='rgba(255,255,255,.82)'; cover(); c.fill('evenodd');
       c.strokeStyle='rgba(255,255,255,.95)'; c.lineWidth=fw*.01; cover(); c.stroke();
       c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(0,0,0,.07)'; c.lineWidth=fw*.005;
@@ -425,28 +459,28 @@ const MASKS=[
     tex(c,g){
       const {P,off,fw}=g;
       const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.12,nostrils:true});
-      c.fillStyle='rgba(40,40,46,.94)'; cover(); c.fill('evenodd');
+      c.fillStyle='rgba(24,24,26,.94)'; cover(); c.fill('evenodd');
       c.save(); cover(); c.clip('evenodd');
-      for(const [p,rad] of [[off(P(10),-.12,0),fw*.28],[off(P(197),-.08,0),fw*.12],[off(P(50),0,0),fw*.14],[off(P(280),0,0),fw*.14]]){
+      for(const [p,rad] of [[off(P(10),-.12,0),fw*.18],[off(P(197),-.08,0),fw*.09],[off(P(50),0,0),fw*.09],[off(P(280),0,0),fw*.09]]){
         const gr=c.createRadialGradient(p.x,p.y,0,p.x,p.y,rad); gr.addColorStop(0,'rgba(255,255,255,.22)'); gr.addColorStop(1,'rgba(255,255,255,0)');
         c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4);
       }
       c.restore();
     }},
 
-  {id:'gold',name:'Gold mask',
+  {id:'gold',name:'Gold',
     tex(c,g){
       const {P,off,fw}=g;
       const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.1,nostrils:true});
       c.fillStyle='#E4B44C'; cover(); c.fill('evenodd');
       shade(c,g,cover,P(10),P(152),.32,'evenodd');
-      c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(255,246,200,.45)'; c.lineWidth=fw*.03; c.lineCap='round';
-      for(const k of [-.32,-.1,.14,.36]){ const a=off(P(197),.5,k-.25), b=off(P(197),-.55,k+.25); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(255,246,200,.28)'; c.lineWidth=fw*.05; c.lineCap='round';
+      for(const [a,b] of [[off(P(6),.12,0),off(P(4),.02,0)],[off(P(50),.1,0),off(P(50),-.1,-.02)],[off(P(280),.1,0),off(P(280),-.1,.02)]]){ c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
       c.restore();
       c.strokeStyle='rgba(120,80,20,.5)'; c.lineWidth=fw*.008; cover(); c.stroke();
     }},
 
-  {id:'mud',name:'Mud mask',
+  {id:'mud',name:'Mud',
     tex(c,g){
       const {P,dist,fw}=g;
       const cover=()=>coverPath(c,g,{edge:.03,eyes:1.6,lips:1.12,nostrils:true});
@@ -454,8 +488,8 @@ const MASKS=[
       shade(c,g,cover,P(10),P(152),.18,'evenodd');
       // cucumber slices over the eyes
       const rad=dist(P(33),P(133))*.85;
-      for(const i of [468,473]){
-        const p=P(i);
+      for(const E of [EYE_R,EYE_L]){
+        const p=g.centroid(E);
         c.fillStyle='#5E9C3A'; shadow(c,g,()=>{ c.beginPath(); c.arc(p.x,p.y,rad,0,7); c.fill(); },.35);
         c.fillStyle='#CFE7A8'; c.beginPath(); c.arc(p.x,p.y,rad*.86,0,7); c.fill();
         c.fillStyle='#A9CF78';
@@ -471,7 +505,7 @@ const MASKS=[
       c.fillStyle='rgba(242,240,234,.96)'; cover(); c.fill('evenodd');
       shade(c,g,cover,P(10),P(152),.22,'evenodd');
       c.fillStyle='#111';
-      for(const E of [EYE_R,EYE_L]){ path(c,ring(E,2.2)); c.fill(); }
+      for(const E of [EYE_R,EYE_L]){ const e=g.centroid(E); c.beginPath(); c.ellipse(e.x,e.y,fw*.13,fw*.1,g.roll,0,7); c.fill(); }
       path(c,[off(P(6),-.02,0),off(P(98),-.01,-.02),off(P(2),-.02,0),off(P(327),-.01,.02)]); c.fill();
       path(c,ring(LIPS,1.45)); c.fill();
       c.fillStyle='#EDEAE2';
@@ -499,12 +533,12 @@ const MASKS=[
     tex(c,g){
       const {P,off,lerp,centroid,fw,fh}=g;
       const cover=()=>coverPath(c,g,{edge:-.02});
-      c.fillStyle='rgba(232,238,245,.38)'; cover(); c.fill();
+      c.fillStyle='rgba(232,238,245,.18)'; cover(); c.fill();
       c.save(); cover(); c.clip(); c.globalCompositeOperation='multiply';
       for(const E of [EYE_R,EYE_L]){ const e=centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.04,e.x,e.y,fw*.16); gr.addColorStop(0,'rgb(120,100,130)'); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); }
       c.restore();
-      c.fillStyle='#F7F7F2';
-      for(const i of [61,291]){ const t=lerp(P(0),P(i),.5); path(c,[off(t,0,-.02),off(t,0,.02),off(t,-.055,0)]); c.fill(); }
+      c.fillStyle='#F7F7F2'; c.strokeStyle='rgba(0,0,0,.4)'; c.lineWidth=fw*.004; c.lineJoin='round';
+      for(const i of [61,291]){ const t=off(lerp(P(0),P(i),.5),-.008,0); path(c,[off(t,0,-.02),off(t,0,.02),off(t,-.06,0)]); c.fill(); c.stroke(); }
       c.strokeStyle='#B3121B'; c.lineWidth=fw*.012; c.lineCap='round';
       const m=P(291), d=off(m,-.06,.01); c.beginPath(); c.moveTo(m.x,m.y); c.lineTo(d.x,d.y); c.stroke();
       c.fillStyle='#B3121B'; c.beginPath(); c.arc(d.x,d.y,fw*.011,0,7); c.fill();
@@ -515,27 +549,27 @@ const MASKS=[
       const {P,fw}=g, r=rng(11);
       const cover=()=>coverPath(c,g,{edge:0,eyes:1.3,lips:1.1});
       c.save(); cover(); c.clip('evenodd');
-      c.fillStyle='rgba(96,112,64,.6)'; c.fillRect(-1e4,-1e4,2e4,2e4);
-      const cols=['rgba(58,72,40,.8)','rgba(112,108,70,.8)','rgba(40,40,34,.75)','rgba(140,122,86,.7)'];
-      for(let i=0;i<48;i++){ const p=g.off(P(197),(r()-.5)*1.1,(r()-.5)*1.05); c.fillStyle=cols[i%4];
-        c.beginPath(); c.ellipse(p.x,p.y,fw*(.05+r()*.09),fw*(.03+r()*.05),r()*3.14,0,7); c.fill(); }
+      c.fillStyle='rgba(96,112,64,.82)'; c.fillRect(-1e4,-1e4,2e4,2e4);
+      const cols=['rgba(52,66,36,.9)','rgba(128,116,74,.9)','rgba(34,34,30,.85)'];
+      for(let i=0;i<26;i++){ const p=g.off(P(197),(r()-.5)*1.2,(r()-.5)*1.1), R=fw*(.1+r()*.12); c.fillStyle=cols[i%3];
+        c.beginPath(); for(let k=0;k<6;k++){ const a=k/6*6.283, q=g.off(p,Math.sin(a)*R*(.5+.6*r())/g.fh,Math.cos(a)*R*(.5+.6*r())/fw); k?c.lineTo(q.x,q.y):c.moveTo(q.x,q.y); } c.closePath(); c.fill(); }
       c.restore();
     }},
 
-  {id:'warpaint',name:'Warpaint',
+  {id:'warpaint',name:'Game day',
     tex(c,g){
       const {P,off,fw}=g;
-      c.lineWidth=fw*.032; c.lineCap='butt';
-      for(const [i,s] of [[118,-1],[347,1]]) for(const [col,k] of [['#D8262C',0],['#F4F1E8',.055],['#1E3A8A',.11]]){
-        const a=off(P(i),-.03,s*k), b=off(a,-.15,s*.11); c.strokeStyle=col; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.lineWidth=fw*.03; c.lineCap='butt';
+      for(const i of [117,346]) for(const [col,k] of [['#D8262C',0],['#F4F1E8',.05]]){
+        const a=off(P(i),-.035-k,-.09), b=off(P(i),-.035-k,.09); c.strokeStyle=col; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
     }},
 
   {id:'freckles',name:'Freckles',
     tex(c,g){
       const {P,fw}=g, r=rng(5);
-      c.save(); coverPath(c,g,{edge:0,eyes:1.4,lips:1.1}); c.clip('evenodd'); c.fillStyle='rgba(110,60,35,.42)';
-      for(let i=0;i<80;i++){ const v=(r()-.5)*.95, u=-.02-r()*.24+(1-Math.abs(v)*1.2)*.08; const p=g.off(P(197),u,v);
-        c.beginPath(); c.arc(p.x,p.y,fw*(.003+r()*.006),0,7); c.fill(); }
+      c.save(); coverPath(c,g,{edge:0,eyes:1.4,lips:1.1}); c.clip('evenodd'); c.fillStyle='rgba(110,60,35,.35)';
+      for(let i=0;i<130;i++){ const v=(r()-.5)*.95, u=-.02-r()*.24+(1-Math.abs(v)*1.2)*.08; const p=g.off(P(197),u,v);
+        c.beginPath(); c.arc(p.x,p.y,fw*(.003+r()*.0035),0,7); c.fill(); }
       c.restore();
     }},
 
@@ -558,7 +592,7 @@ const MASKS=[
       const upper=[137,177,215,212,214,57,43,106,182,83,18,313,406,335,273,287,434,432,435,401,366].map(i=>P(i));
       const tache=[98,97,2,326,327,291,409,270,269,267,0,37,39,40,185,61].map(i=>[98,97,2,326,327].includes(i)?P(i):off(P(i),.012,0));
       const hair=()=>{ c.beginPath(); addPath(c,[...J.slice(1,20),...upper]); addPath(c,tache); };
-      c.fillStyle='rgba(58,38,28,.85)'; shadow(c,g,()=>{ hair(); c.fill(); },.25);
+      c.fillStyle='rgba(58,38,28,.65)'; shadow(c,g,()=>{ hair(); c.fill(); },.25);
       c.save(); hair(); c.clip(); c.lineCap='round'; c.lineWidth=fw*.005;
       for(let i=0;i<1200;i++){ const a=off(P(152),.02+r()*.62,(r()-.5)*1.15), b=off(a,-.02-r()*.03,(r()-.5)*.02);
         c.strokeStyle=['rgba(30,18,12,.7)','rgba(90,62,44,.6)','rgba(120,90,66,.35)'][i%3]; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
@@ -568,12 +602,12 @@ const MASKS=[
   {id:'moustache',name:'Moustache',
     tex(c,g){
       const {P,off,lerp,fw}=g;
-      const m=lerp(P(2),P(0),.55);
+      const m=lerp(P(2),P(0),.7);
       c.strokeStyle='#2E1F17'; c.lineCap='round';
       for(const [i,s] of [[61,-1],[291,1]]){
         const tip=off(P(i),.05,s*.09), ctl=off(P(i),-.01,s*.01);
         c.lineWidth=fw*.045; c.beginPath(); c.moveTo(m.x,m.y); c.quadraticCurveTo(ctl.x,ctl.y,lerp(ctl,tip,.55).x,lerp(ctl,tip,.55).y); c.stroke();
-        c.lineWidth=fw*.022; c.beginPath(); c.moveTo(lerp(ctl,tip,.4).x,lerp(ctl,tip,.4).y); c.quadraticCurveTo(off(tip,-.03,0).x,off(tip,-.03,0).y,tip.x,tip.y); c.stroke();
+        c.lineWidth=fw*.014; c.beginPath(); c.moveTo(lerp(ctl,tip,.4).x,lerp(ctl,tip,.4).y); c.quadraticCurveTo(off(tip,-.03,0).x,off(tip,-.03,0).y,tip.x,tip.y); c.stroke();
       }
     }},
 
@@ -585,24 +619,22 @@ const MASKS=[
       c.strokeStyle='#141416'; c.lineWidth=fw*.025; c.lineCap='round';
       const a=off(e,.09,0), b=off(P(127),.09,0), d=off(P(356),.01,0);
       c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.moveTo(a.x,a.y); c.lineTo(d.x,d.y); c.stroke();
-      c.fillStyle='#141416'; shadow(c,g,()=>{ path(c,ring(EYE_L,2.4)); c.fill(); });
+      c.fillStyle='#141416'; shadow(c,g,()=>{ const p=off(e,-.01,0); c.beginPath(); c.ellipse(p.x,p.y,fw*.1,fw*.085,g.roll,0,7); c.fill(); });
     }},
 
   {id:'bear',name:'Bear ears',
     over(c,g){
       const {P,off,fw}=g;
-      const ears=[[103,-1],[332,1]].map(([i,s])=>off(P(i),.14,s*.07));
-      c.strokeStyle='#F2A5C0'; c.lineWidth=fw*.035; c.lineCap='round';
-      const top=off(P(10),.09,0); c.beginPath(); c.moveTo(ears[0].x,ears[0].y); c.quadraticCurveTo(top.x,top.y,ears[1].x,ears[1].y); c.stroke();
-      for(const e of ears){ c.fillStyle='#F2A5C0'; shadow(c,g,()=>{ c.beginPath(); c.arc(e.x,e.y,fw*.13,0,7); c.fill(); },.3);
-        c.fillStyle='#F9D3E0'; c.beginPath(); c.arc(e.x,e.y,fw*.08,0,7); c.fill(); }
+      const ears=[[103,-1],[332,1]].map(([i,s])=>off(P(i),.07,s*.08));
+      for(const e of ears){ c.fillStyle='#6B4A3A'; shadow(c,g,()=>{ c.beginPath(); c.arc(e.x,e.y,fw*.12,0,7); c.fill(); },.3);
+        c.fillStyle='#C9A08A'; c.beginPath(); c.arc(e.x,e.y,fw*.07,0,7); c.fill(); }
     }},
 
   {id:'bunny',name:'Bunny ears',
     over(c,g){
       const {P,off,fw}=g;
       for(const [i,s] of [[103,-1],[332,1]]){
-        const base=off(P(i),.03,s*.02), tip=off(base,.52,s*.1), mid={x:(base.x+tip.x)/2,y:(base.y+tip.y)/2};
+        const base=off(P(i),-.02,s*.02), tip=off(base,.44,s*.1), mid={x:(base.x+tip.x)/2,y:(base.y+tip.y)/2};
         const ang=Math.atan2(tip.y-base.y,tip.x-base.x), len=Math.hypot(tip.x-base.x,tip.y-base.y);
         c.save(); c.translate(mid.x,mid.y); c.rotate(ang);
         c.fillStyle='#F3F0EA'; shadow(c,g,()=>{ c.beginPath(); c.ellipse(0,0,len/2,fw*.065,0,0,7); c.fill(); },.3);
@@ -615,9 +647,9 @@ const MASKS=[
     over(c,g){
       const {P,off,fw}=g;
       for(const [i,s] of [[103,-1],[332,1]]){
-        const base=off(P(i),.02,s*.02), tip=off(base,.42,s*.14), ctl=off(base,.25,s*.02);
+        const base=off(P(i),0,s*.02), tip=off(base,.3,s*.22), ctl=off(base,.2,s*.04);
         c.lineCap='round';
-        for(const [col,w] of [['rgba(255,255,255,.55)',fw*.02],['#26262B',fw*.012]]){ c.strokeStyle=col; c.lineWidth=w; c.beginPath(); c.moveTo(base.x,base.y); c.quadraticCurveTo(ctl.x,ctl.y,tip.x,tip.y); c.stroke(); }
+        for(const [col,w] of [['rgba(255,255,255,.6)',fw*.028],['#3A3A40',fw*.018]]){ c.strokeStyle=col; c.lineWidth=w; c.beginPath(); c.moveTo(base.x,base.y); c.quadraticCurveTo(ctl.x,ctl.y,tip.x,tip.y); c.stroke(); }
         c.fillStyle='#E0262E'; shadow(c,g,()=>{ c.beginPath(); c.arc(tip.x,tip.y,fw*.04,0,7); c.fill(); },.3);
         c.fillStyle='rgba(255,255,255,.45)'; c.beginPath(); c.arc(tip.x-fw*.013,tip.y-fw*.013,fw*.013,0,7); c.fill();
       }
@@ -628,7 +660,9 @@ const MASKS=[
 // Built from a spec rather than drawn by hand: a shape, up to three colours and a pattern.
 // The spec comes from analysing a picture the person chose (see analyse() below), or their edits.
 const DEFAULT_SPEC={cover:'lower',pattern:'plain',colors:['#7CC1DE','#F6F2EA','#3A3545'],mouth:true};
-let spec=null; try{ spec=JSON.parse(localStorage.getItem('maskup.custom')); }catch{}
+const okSpec=x=>x&&typeof x==='object'&&['full','lower','eyes'].includes(x.cover)&&['plain','dots','stripes','blobs','knit'].includes(x.pattern)
+  &&Array.isArray(x.colors)&&x.colors.length===3&&x.colors.every(c=>/^#[0-9a-f]{6}$/i.test(c));
+let spec=null; try{ const x=JSON.parse(localStorage.getItem('maskup.custom')); if(okSpec(x)) spec={cover:x.cover,pattern:x.pattern,mouth:!!x.mouth,colors:x.colors}; }catch{}
 function drawSpec(c,g,sp){
   const {P,off,fw}=g, r=rng(21);
   let region;
@@ -697,33 +731,49 @@ async function analyse(img,detect){
 // sits in the same light as the face. Falls back to flat drawing where WebGL is missing.
 const mesh=(()=>{
   const cv=document.createElement('canvas');
-  const gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:true});
+  // No MSAA and no depth buffer: the mask edge comes from texture alpha, so neither buys anything at 1080p
+  const gl=cv.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:false,depth:false,stencil:false});
   if(!gl) return null;
   const VS=`attribute vec2 aPos;attribute vec2 aUv;varying vec2 vUv;varying vec2 vPos;
     void main(){vUv=aUv;vPos=aPos;gl_Position=vec4(aPos.x*2.0-1.0,1.0-aPos.y*2.0,0.0,1.0);}`;
-  const FS=`precision mediump float;uniform sampler2D uMask;uniform sampler2D uLight;uniform float uMean;uniform float uRelight;
+  const FS=`#ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #else
+    precision mediump float;
+    #endif
+    uniform sampler2D uMask;uniform sampler2D uLight;uniform float uMean;uniform float uRelight;
     varying vec2 vUv;varying vec2 vPos;
     void main(){
       vec4 m=texture2D(uMask,vUv);
       float l=dot(texture2D(uLight,vPos).rgb,vec3(.299,.587,.114));
       float f=mix(1.0,clamp(l/max(uMean,.05),.7,1.5),uRelight);
-      gl_FragColor=vec4(m.rgb*f*m.a,m.a);
+      gl_FragColor=vec4(m.rgb*f,m.a);
     }`;
-  const sh=(t,src)=>{ const o=gl.createShader(t); gl.shaderSource(o,src); gl.compileShader(o); if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
-  const pr=gl.createProgram(); gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS)); gl.linkProgram(pr); gl.useProgram(pr);
-  const buf=(target,data,usage)=>{ const b=gl.createBuffer(); gl.bindBuffer(target,b); gl.bufferData(target,data,usage); return b; };
-  const attr=(name,b)=>{ const a=gl.getAttribLocation(pr,name); gl.bindBuffer(gl.ARRAY_BUFFER,b); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0); };
   const pos=new Float32Array(468*2);
-  const posB=buf(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW); attr('aPos',posB);
-  attr('aUv',buf(gl.ARRAY_BUFFER,MESH.uv,gl.STATIC_DRAW));
-  buf(gl.ELEMENT_ARRAY_BUFFER,MESH.tri,gl.STATIC_DRAW);
-  const texture=unit=>{ const t=gl.createTexture(); gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,t);
-    for(const p of ['TEXTURE_WRAP_S','TEXTURE_WRAP_T']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.CLAMP_TO_EDGE);
-    for(const p of ['TEXTURE_MIN_FILTER','TEXTURE_MAG_FILTER']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.LINEAR); return t; };
-  texture(0); texture(1);
-  gl.uniform1i(gl.getUniformLocation(pr,'uMask'),0); gl.uniform1i(gl.getUniformLocation(pr,'uLight'),1);
-  const uMean=gl.getUniformLocation(pr,'uMean'), uRelight=gl.getUniformLocation(pr,'uRelight');
-  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+  let posB, uMean, uRelight, lost=false, bound=null;
+  function init(){
+    const sh=(t,src)=>{ const o=gl.createShader(t); gl.shaderSource(o,src); gl.compileShader(o); if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+    const pr=gl.createProgram(); gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS)); gl.linkProgram(pr); gl.useProgram(pr);
+    const buf=(target,data,usage)=>{ const b=gl.createBuffer(); gl.bindBuffer(target,b); gl.bufferData(target,data,usage); return b; };
+    const attr=(name,b)=>{ const a=gl.getAttribLocation(pr,name); gl.bindBuffer(gl.ARRAY_BUFFER,b); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0); };
+    posB=buf(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW); attr('aPos',posB);
+    attr('aUv',buf(gl.ARRAY_BUFFER,MESH.uv,gl.STATIC_DRAW));
+    buf(gl.ELEMENT_ARRAY_BUFFER,MESH.tri,gl.STATIC_DRAW);
+    const texture=unit=>{ const t=gl.createTexture(); gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,t);
+      for(const p of ['TEXTURE_WRAP_S','TEXTURE_WRAP_T']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.CLAMP_TO_EDGE);
+      for(const p of ['TEXTURE_MIN_FILTER','TEXTURE_MAG_FILTER']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.LINEAR); return t; };
+    texture(0); texture(1);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);
+    gl.uniform1i(gl.getUniformLocation(pr,'uMask'),0); gl.uniform1i(gl.getUniformLocation(pr,'uLight'),1);
+    uMean=gl.getUniformLocation(pr,'uMean'); uRelight=gl.getUniformLocation(pr,'uRelight');
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.CULL_FACE);                       // triangles that fold over at strong yaw no longer paint over the near side
+    bound=null;
+  }
+  init();
+  // iOS drops WebGL contexts under memory pressure. Fall back to flat drawing until it comes back.
+  cv.addEventListener('webglcontextlost',e=>{ e.preventDefault(); lost=true; });
+  cv.addEventListener('webglcontextrestored',()=>{ init(); lost=false; });
   // The light map is the frame at 32 px wide: cheap to upload, and blurred enough that
   // lips and brows under the mask do not print through as dark patches. Only the broad
   // light on the face survives, which is exactly the part worth copying onto the mask.
@@ -737,28 +787,33 @@ const mesh=(()=>{
     if(!big||big.m!==m) big={m,t:make()};
     return big.t;
   }
-  let bound=null;
   return {
     canvas:cv,
+    get lost(){ return lost; },
     invalidate(m){ small.delete(m); if(big&&big.m===m) big=null; bound=null; },
     render(faces,W,H,m,src,relight=.75){
-      if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
-      gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+      // The mesh layer is capped at 960 px on the long side. A 1024 texture on a face a few hundred pixels tall stays sharp at that size.
+      const k=Math.min(1,960/Math.max(W,H)), cw=Math.max(1,Math.round(W*k)), ch=Math.max(1,Math.round(H*k));
+      if(cv.width!==cw||cv.height!==ch){ cv.width=cw; cv.height=ch; }
+      gl.viewport(0,0,cw,ch); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
       const size=W<=256?256:1024, key=m.id+size;
       if(bound!==key){ gl.activeTexture(gl.TEXTURE0); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,maskTexture(m,size)); bound=key; }
-      light.width=32; light.height=Math.max(1,Math.round(32*H/W)); lctx.drawImage(src,0,0,light.width,light.height);
+      const lh=Math.max(1,Math.round(32*H/W));
+      if(light.width!==32||light.height!==lh){ light.width=32; light.height=lh; }
+      lctx.drawImage(src,0,0,light.width,light.height);
       gl.activeTexture(gl.TEXTURE1); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,light);
       const px=lctx.getImageData(0,0,light.width,light.height).data;
       gl.uniform1f(uRelight,relight);
       for(const L of faces){
         let x0=1,y0=1,x1=0,y1=0;
         for(let i=0;i<468;i++){ const p=L[i]; pos[2*i]=p.x; pos[2*i+1]=p.y; if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }
-        // mean brightness of the face box in the light map, so the relight is relative to this face, not to a fixed grey
+        // mean brightness of the face box in the light map, clamped to the map so a face half out of frame cannot read off its edge
+        const xa=Math.max(0,Math.floor(x0*light.width)), xb=Math.min(light.width,Math.ceil(x1*light.width));
+        const ya=Math.max(0,Math.floor(y0*light.height)), yb=Math.min(light.height,Math.ceil(y1*light.height));
         let sum=0,n=0;
-        for(let y=Math.floor(y0*light.height);y<Math.ceil(y1*light.height);y++) for(let x=Math.floor(x0*light.width);x<Math.ceil(x1*light.width);x++){
-          const k=4*(y*light.width+x); sum+=.299*px[k]+.587*px[k+1]+.114*px[k+2]; n++; }
+        for(let y=ya;y<yb;y++) for(let x=xa;x<xb;x++){ const q=4*(y*light.width+x); sum+=.299*px[q]+.587*px[q+1]+.114*px[q+2]; n++; }
         gl.uniform1f(uMean,n?sum/n/255:.5);
-        gl.bindBuffer(gl.ARRAY_BUFFER,posB); gl.bufferData(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER,posB); gl.bufferSubData(gl.ARRAY_BUFFER,0,pos);
         gl.drawElements(gl.TRIANGLES,MESH.tri.length,gl.UNSIGNED_SHORT,0);
       }
     }
@@ -770,7 +825,7 @@ function composite(c,faces,W,H,m,src){
   if(!faces.length) return;
   if(m.under) for(const L of faces) m.under(c,geom(L,W,H));
   if(m.tex){
-    if(mesh){ mesh.render(faces,W,H,m,src); c.drawImage(mesh.canvas,0,0); }
+    if(mesh&&!mesh.lost){ mesh.render(faces,W,H,m,src); c.drawImage(mesh.canvas,0,0,W,H); }
     else for(const L of faces) m.tex(c,geom(L,W,H));
   }
   if(m.over) for(const L of faces) m.over(c,geom(L,W,H));
@@ -791,8 +846,11 @@ function refFace(c,g){
 // ---------- State ----------
 const $=id=>document.getElementById(id);
 const stage=$('stage'), video=$('video'), out=$('out'), ctx=out.getContext('2d'), hint=$('hint'), toast=$('toast');
-let landmarker=null, stream=null, facing='user', running=false, lastT=-1, result=null, current=MASKS[1];
+let landmarker=null, mode='VIDEO';                  // the landmarker's running mode, tracked here because the object does not expose it
+let stream=null, facing='user', mirror=false, running=false, lastT=-1, result=null;
+let current=MASKS.find(m=>m.id==='surgical');
 let source=video;                                  // what draw() paints under the mask: the video, a frozen frame or a photo
+let gen=0;                                         // camera generation. Every start bumps it, so a stale start or loop can tell it has been superseded
 // Detection jitters a pixel or two per frame. Ease each landmark towards its new
 // position instead of snapping, so the masks sit still on a still face.
 let prev=null;
@@ -803,17 +861,28 @@ function smooth(faces,a=.5){
   return prev;
 }
 const say=m=>{ toast.textContent=m; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'),2600); };
+const setMode=async m=>{ if(landmarker&&mode!==m){ await landmarker.setOptions({runningMode:m}); mode=m; } };
+function showEmpty(msg){ stage.className='stage'; $('actions').classList.remove('show'); if(msg) $('loadMsg').textContent=msg; }
 
 // ---------- Load model ----------
-try{
-  const vision=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10/wasm");
-  const make=delegate=>FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",delegate},runningMode:"VIDEO",numFaces:2});
-  try{ landmarker=await make("GPU"); }catch{ landmarker=await make("CPU"); }
-  $('loadMsg').textContent='Face tracking ready.'; $('btnCamera').disabled=false; $('btnUpload').disabled=false;
-}catch(e){
-  $('loadMsg').textContent='Face tracking can’t load on this host. Its security policy blocks the tracking model. Host the file on Netlify or GitHub Pages and open that link.';
-  console.error('Face Landmarker load failed:',e);
+const MP="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
+async function loadModel(){
+  $('loadMsg').textContent='Getting face tracking ready. This takes a moment the first time.'; $('btnReload').hidden=true;
+  try{
+    const {FaceLandmarker,FilesetResolver}=await import(MP+"/vision_bundle.mjs");
+    const vision=await FilesetResolver.forVisionTasks(MP+"/wasm");
+    const make=delegate=>FaceLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",delegate},runningMode:"VIDEO",numFaces:2});
+    try{ landmarker=await make("GPU"); }catch{ landmarker=await make("CPU"); }
+    mode='VIDEO';
+    $('loadMsg').textContent='Ready. Your phone will ask to use the camera.'; $('btnCamera').disabled=false; $('btnUpload').disabled=false;
+  }catch(e){
+    console.error('Face Landmarker load failed:',e);
+    $('loadMsg').textContent=navigator.onLine===false?'You’re offline. Face tracking downloads once, so connect and reload.':'Face tracking didn’t load. Check your connection and reload.';
+    $('btnReload').hidden=false;
+  }
 }
+$('btnReload').onclick=()=>location.reload();
+await loadModel();
 
 // ---------- Camera ----------
 const portraitScreen=()=>innerHeight>innerWidth;
@@ -822,143 +891,283 @@ async function openStream(swap){
   return navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:tall?1080:1920},height:{ideal:tall?1920:1080}},audio:false});
 }
 async function startCamera(){
-  stopCamera();
+  stopCamera(); const g=++gen;
+  if(facing!=='user'&&facing!=='environment') facing='user';
+  $('btnFlip').disabled=true; $('btnCamera').disabled=true;
   try{
-    stream=await openStream(false);
-    video.srcObject=stream; await video.play();
+    let s=await openStream(false); if(g!==gen){ s.getTracks().forEach(t=>t.stop()); return; }
+    stream=s; video.srcObject=s; await video.play(); if(g!==gen) return;
     // Some phones read width and height in sensor orientation and hand a portrait screen a
     // landscape frame. Ask once more with the two swapped. If that fails, keep what we had.
     if(portraitScreen() && video.videoWidth>video.videoHeight){
-      stream.getTracks().forEach(t=>t.stop());
-      try{ stream=await openStream(true); }catch{ stream=await openStream(false); }
-      video.srcObject=stream; await video.play();
+      s.getTracks().forEach(t=>t.stop()); stream=null;
+      try{ s=await openStream(true); }catch{ s=await openStream(false); }
+      if(g!==gen){ s.getTracks().forEach(t=>t.stop()); return; }
+      stream=s; video.srcObject=s; await video.play(); if(g!==gen) return;
     }
-    out.width=video.videoWidth; out.height=video.videoHeight; source=video;
-    if(landmarker.runningMode!=='VIDEO') await landmarker.setOptions({runningMode:'VIDEO'});
-    stage.className='stage live'; $('actions').classList.remove('show');
-    hint.textContent='Looking for a face…'; running=true; lastT=-1; prev=null; loop();
+    // iOS ends the track for a call, a lock or another app taking the camera. Notice, rather than freezing on the last frame.
+    stream.getVideoTracks()[0].onended=()=>{ if(g!==gen) return; if(recording) stopRecording(); stopCamera(); if(!stage.classList.contains('frozen')) showEmpty('The camera stopped. Tap Start camera to carry on.'); };
+    out.width=video.videoWidth; out.height=video.videoHeight; source=video; mirror=facing==='user';
+    await setMode('VIDEO'); if(g!==gen) return;
+    stage.className='stage live'+(capture==='video'?' video':''); $('actions').classList.remove('show');
+    hint.textContent='Looking for a face…'; running=true; lastT=-1; prev=null; loop(g);
   }catch(e){
-    const insecure=!window.isSecureContext;
-    say(insecure?'Camera needs HTTPS. Host this file (e.g. Netlify, GitHub Pages) and open that link.':'Camera blocked. Allow camera access for this page and try again.');
+    if(g!==gen) return;
+    stopCamera();
+    const msg=!window.isSecureContext?'This link isn’t secure, so the camera can’t start. Ask for an https link.'
+      :e&&(e.name==='NotAllowedError'||e.name==='SecurityError')?'Camera access is off. Allow it for this site in your browser settings, then try again.'
+      :'No camera available. Close other apps using it and try again.';
+    if(stage.classList.contains('still')) say(msg); else showEmpty(msg);
+  }finally{
+    if(g===gen){ $('btnFlip').disabled=false; $('btnCamera').disabled=!landmarker; }
   }
 }
-function stopCamera(){ running=false; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } }
+function stopCamera(){ running=false; gen++; if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } video.srcObject=null; }
+// Rotating the phone swaps the frame's dimensions mid-stream
+video.onresize=()=>{ if(source===video&&video.videoWidth&&(out.width!==video.videoWidth||out.height!==video.videoHeight)){ out.width=video.videoWidth; out.height=video.videoHeight; prev=null; } };
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible'||!stream) return;
+  const t=stream.getVideoTracks()[0];
+  if(!t||t.readyState==='ended'){ if(running) startCamera(); else stopCamera(); }
+  else if(video.paused) video.play().catch(()=>{});
+});
 
-function loop(){
-  if(!running) return;
-  if(video.readyState>=2 && video.currentTime!==lastT){
-    lastT=video.currentTime;
-    result=landmarker.detectForVideo(video,performance.now());
-    result.faceLandmarks=smooth(result.faceLandmarks);
-    draw();
-    const n=result.faceLandmarks.length;
-    hint.textContent=n?'Tracking. Turn, tilt, talk, it follows.':'Looking for a face…';
+function loop(g=gen){
+  if(!running||g!==gen) return;
+  try{
+    if(video.readyState>=2 && video.currentTime!==lastT){
+      lastT=video.currentTime;
+      result=landmarker.detectForVideo(video,performance.now());
+      result.faceLandmarks=smooth(result.faceLandmarks);
+      draw();
+      if(recording) recordFrame();
+      const n=result.faceLandmarks.length;
+      hint.textContent=n?(recording?'Recording. Swap masks as you go.':capture==='video'?'Found you. Pick a mask, then tap to record.':'Found you. Pick a mask, then tap the shutter.'):'Looking for a face…';
+    }
+  }catch(e){
+    console.error(e); if(recording) stopRecording(); stopCamera(); showEmpty('Tracking stopped. Tap Start camera to carry on.'); return;
   }
-  requestAnimationFrame(loop);
+  requestAnimationFrame(()=>loop(g));
 }
 function draw(){
   const W=out.width,H=out.height;
-  ctx.save(); if(facing==='user'){ ctx.translate(W,0); ctx.scale(-1,1); }
+  ctx.save(); if(mirror){ ctx.translate(W,0); ctx.scale(-1,1); }
   ctx.drawImage(source,0,0,W,H);
   if(result) composite(ctx,result.faceLandmarks,W,H,current,source);
   ctx.restore();
 }
+async function resumeLive(){
+  await setMode('VIDEO'); source=video; mirror=facing==='user';
+  stage.className='stage live'+(capture==='video'?' video':''); $('actions').classList.remove('show'); $('clip').removeAttribute('src');
+  hint.textContent='Looking for a face…'; running=true; lastT=-1; loop(gen);
+}
 
 $('btnCamera').onclick=startCamera;
-$('btnFlip').onclick=()=>{ facing=facing==='user'?'environment':'user'; startCamera(); };
+$('btnFlip').onclick=()=>{ if(recording) return; facing=facing==='user'?'environment':'user'; startCamera(); };
+$('btnRetake').onclick=()=>{ if(stream) resumeLive(); else startCamera(); };
+$('btnAnother').onclick=()=>$('file').click();
+
+// ---------- Photo and video capture ----------
+let capture='photo';
+for(const b of document.querySelectorAll('.modes button')) b.onclick=()=>{
+  if(recording) return; capture=b.dataset.mode;
+  for(const o of document.querySelectorAll('.modes button')){ const on=o===b; o.classList.toggle('on',on); o.setAttribute('aria-selected',on); }
+  stage.classList.toggle('video',capture==='video'); $('shutter').setAttribute('aria-label',capture==='video'?'Record video':'Take photo');
+  if(result&&result.faceLandmarks.length) hint.textContent=capture==='video'?'Found you. Pick a mask, then tap to record.':'Found you. Pick a mask, then tap the shutter.';
+};
 $('shutter').onclick=()=>{
+  if(!running||!stream) return;
+  if(capture==='video'){ recording?stopRecording():startRecording(); return; }
   running=false;
   const frozen=document.createElement('canvas'); frozen.width=out.width; frozen.height=out.height; frozen.getContext('2d').drawImage(video,0,0);
-  source=frozen; draw(); stage.className='stage frozen'; $('actions').classList.add('show'); hint.textContent='Frozen. Save it or go back to the camera.';
+  source=frozen; draw(); stage.className='stage frozen'; $('actions').classList.add('show'); $('btnRetake').textContent='Retake';
+  $('btnSave').textContent=canShareFiles?'Share photo':'Save photo';
+  hint.textContent='Try other masks on this shot, then save.';
 };
-$('btnRetake').onclick=()=>{ if(stream){ source=video; stage.className='stage live'; $('actions').classList.remove('show'); running=true; loop(); } else startCamera(); };
+
+// Video records what is on screen: the visible crop of the output canvas, drawn into a
+// recording canvas each frame, plus the microphone. Masks can change mid-clip because
+// the live loop keeps running. Safari gives MP4, Chrome gives WebM.
+let recording=null, recCanvas=null, recCtx=null, recRect=null, recStart=0, recTimer=0, micStream=null;
+const MAX_CLIP=60000;
+function recordFrame(){
+  recCtx.drawImage(out,recRect.x,recRect.y,recRect.w,recRect.h,0,0,recCanvas.width,recCanvas.height);
+  const t=Math.floor((performance.now()-recStart)/1000); $('timer').textContent=`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`;
+  if(performance.now()-recStart>MAX_CLIP) stopRecording();
+}
+async function startRecording(){
+  if(!('MediaRecorder' in window)||!out.captureStream){ say('This browser can’t record video. Take a photo instead.'); return; }
+  recRect=visibleRect();
+  recCanvas=document.createElement('canvas'); recCanvas.width=Math.round(recRect.w/2)*2; recCanvas.height=Math.round(recRect.h/2)*2; recCtx=recCanvas.getContext('2d');
+  recordFrameOnce();
+  const ms=recCanvas.captureStream(30);
+  micStream=null;
+  try{ micStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false}); micStream.getAudioTracks().forEach(t=>ms.addTrack(t)); }catch{ say('No microphone, so this clip has no sound.'); }
+  if(!running||!stream) return;
+  const type=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(t=>MediaRecorder.isTypeSupported(t))||'';
+  const chunks=[];
+  let rec;
+  try{ rec=new MediaRecorder(ms,type?{mimeType:type,videoBitsPerSecond:6e6}:{videoBitsPerSecond:6e6}); }
+  catch(e){ say('This browser can’t record video. Take a photo instead.'); releaseMic(); return; }
+  rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+  rec.onstop=()=>{ releaseMic(); showClip(new Blob(chunks,{type:rec.mimeType||type||'video/webm'})); };
+  rec.onerror=()=>{ say('Recording stopped unexpectedly.'); releaseMic(); recording=null; stage.classList.remove('recording'); };
+  recording=rec; recStart=performance.now(); $('timer').textContent='0:00';
+  stage.classList.add('recording'); $('shutter').setAttribute('aria-label','Stop recording');
+  rec.start(250);
+}
+function recordFrameOnce(){ recCtx.drawImage(out,recRect.x,recRect.y,recRect.w,recRect.h,0,0,recCanvas.width,recCanvas.height); }
+function releaseMic(){ if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; } }
+function stopRecording(){
+  const rec=recording; if(!rec) return; recording=null;
+  stage.classList.remove('recording'); $('shutter').setAttribute('aria-label','Record video');
+  if(rec.state!=='inactive') rec.stop(); else releaseMic();
+}
+let clipBlob=null;
+function showClip(blob){
+  clipBlob=blob; running=false;
+  const v=$('clip'); v.src=URL.createObjectURL(blob); v.play().catch(()=>{});
+  stage.className='stage clip'; $('actions').classList.add('show'); $('btnRetake').textContent='Retake';
+  $('btnSave').textContent=canShareFiles?'Share video':'Save video';
+  hint.textContent='Your clip. Share it, or retake.';
+}
 
 // ---------- Still photo ----------
+// Decode through an <img> so the size is known before the pixels are, and a 200 megapixel bomb can be refused
+function loadImage(blob){
+  return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(blob), i=new Image();
+    i.onload=()=>{ URL.revokeObjectURL(url); if(i.naturalWidth*i.naturalHeight>40e6) rej(new Error('big')); else res(i); };
+    i.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('decode')); };
+    i.src=url;
+  });
+}
+const photoError=e=>e&&e.message==='big'?'That photo is too big. Try a smaller one.':'Could not read that photo. Try a JPG or PNG.';
 $('btnUpload').onclick=()=>$('file').click();
 $('file').onchange=async e=>{
   const f=e.target.files[0]; if(!f) return;
-  stopCamera();
-  let img; try{ img=await createImageBitmap(f,{imageOrientation:'from-image'}); }
-  catch{ img=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=URL.createObjectURL(f); }); }
-  const r=Math.min(1,1600/Math.max(img.width,img.height));
-  out.width=Math.round(img.width*r); out.height=Math.round(img.height*r);
-  await landmarker.setOptions({runningMode:'IMAGE'});
-  const tmp=document.createElement('canvas'); tmp.width=out.width; tmp.height=out.height; tmp.getContext('2d').drawImage(img,0,0,out.width,out.height);
-  result=landmarker.detect(tmp); prev=null; facing='none'; source=tmp; draw();
-  stage.className='stage still'; $('actions').classList.add('show');
-  hint.textContent=result.faceLandmarks.length?'Fitted to the face in the photo.':'No face found in that photo.';
-  e.target.value='';
+  if(recording) stopRecording();
+  stopCamera(); const g=++gen;
+  hint.textContent='Reading the photo…';
+  try{
+    const img=await loadImage(f); if(g!==gen) return;
+    const r=Math.min(1,1600/Math.max(img.naturalWidth,img.naturalHeight));
+    out.width=Math.round(img.naturalWidth*r); out.height=Math.round(img.naturalHeight*r);
+    await setMode('IMAGE'); if(g!==gen) return;
+    const tmp=document.createElement('canvas'); tmp.width=out.width; tmp.height=out.height; tmp.getContext('2d').drawImage(img,0,0,out.width,out.height);
+    result=landmarker?landmarker.detect(tmp):{faceLandmarks:[]}; prev=null; mirror=false; source=tmp; draw();
+    stage.className='stage still'; $('actions').classList.add('show'); $('btnRetake').textContent='Start camera';
+    $('btnSave').textContent=canShareFiles?'Share photo':'Save photo';
+    hint.textContent=result.faceLandmarks.length?'Fitted. Pick a mask, then save.':'No face found in that photo. Try one where the face is bigger and facing the camera.';
+  }catch(err){
+    if(g!==gen) return; say(photoError(err)); if(!stage.classList.contains('still')) showEmpty();
+  }finally{ e.target.value=''; }
 };
 
 // ---------- Mask picker ----------
-function selectMask(m){ current=m; [...$('masks').children].forEach(b=>{ const on=b.dataset.id===m.id; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); }); if(!running&&result) draw(); }
-function thumb(m,t=document.createElement('canvas')){
-  const VH=126, VW=Math.round(VH*.75);
+function selectMask(m){
+  current=m;
+  for(const b of Object.values(chips)){ const on=b.dataset.id===m.id; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); if(on) b.scrollIntoView({inline:'nearest',block:'nearest'}); }
+  if(!running&&result&&!stage.classList.contains('clip')) draw();
+}
+function thumb(m,t=document.createElement('canvas'),badge=true){
+  const VH=104, VW=78;
   const base=document.createElement('canvas'); base.width=VW; base.height=VH;
   refFace(base.getContext('2d'),geom(REF,VW,VH));
   t.width=t.height=124; const c=t.getContext('2d');
-  c.save(); c.translate(62-.5*VW,68-.5*VH);           // centre the face, leave headroom for ears
+  c.save(); c.translate(62-.5*VW,70-.5*VH);           // centre the face, leave headroom for ears
   c.drawImage(base,0,0); composite(c,[REF],VW,VH,m,base); c.restore();
-  if(m.id==='custom'){ c.fillStyle='#FF6B8B'; c.beginPath(); c.arc(98,98,20,0,7); c.fill(); c.fillStyle='#2A0A12'; c.fillRect(88,95,20,6); c.fillRect(95,88,6,20); }
+  if(badge&&m.id==='custom'){ c.fillStyle='#0E0C12'; c.beginPath(); c.arc(92,92,21,0,7); c.fill(); c.fillStyle='#FF6B8B'; c.beginPath(); c.arc(92,92,18,0,7); c.fill(); c.fillStyle='#2A0A12'; c.fillRect(84,89,16,6); c.fillRect(89,84,6,16); }
   return t;
 }
+// Tray order, in groups: a thin rule between groups gives the thumb something to feel
+const GROUPS=[['none','custom'],['surgical','bandana','gaiter','balaclava'],['hero','masquerade','shades','eyepatch'],['clay','sheet','charcoal','gold','mud'],['skull','clown','vampire','camo','warpaint','freckles','gems'],['beard','moustache','cat','bear','bunny','antennae']];
 const chips={};
-for(const m of MASKS){
-  const b=document.createElement('button'); b.className='mask'; b.dataset.id=m.id; b.setAttribute('role','option');
-  b.append(thumb(m),Object.assign(document.createElement('span'),{textContent:m.name}));
-  b.onclick=()=>m.id==='custom'?openSheet():selectMask(m); $('masks').append(b); chips[m.id]=b;
-}
+GROUPS.forEach((ids,k)=>{
+  if(k) $('masks').append(Object.assign(document.createElement('div'),{className:'sep'}));
+  for(const id of ids){
+    const m=MASKS.find(x=>x.id===id); if(!m) continue;
+    const b=document.createElement('button'); b.className='mask'; b.dataset.id=m.id; b.setAttribute('role','option');
+    let t; try{ t=thumb(m); }catch(e){ console.error('thumbnail failed for',m.id,e); t=document.createElement('canvas'); }
+    b.append(t,Object.assign(document.createElement('span'),{textContent:m.name}));
+    if(m.id==='custom') b.setAttribute('aria-haspopup','dialog');
+    b.onclick=()=>m.id==='custom'?openSheet():selectMask(m); $('masks').append(b); chips[m.id]=b;
+  }
+});
 selectMask(current);
 
 // ---------- Custom mask sheet ----------
 const CUSTOM=MASKS.find(m=>m.id==='custom');
 let draft=null, wasRunning=false;
 function openSheet(){
+  if(!$('sheet').hidden) return;
+  if(recording){ if(spec) selectMask(CUSTOM); else say('Stop recording first to make a custom mask.'); return; }
   wasRunning=running; running=false;                 // detection runs in IMAGE mode while the sheet is open
   draft=spec?{...spec,colors:[...spec.colors]}:null;
-  $('result').hidden=!draft; $('btnUseCustom').disabled=!draft; $('customMsg').textContent=draft?'Your current custom mask. Change it, or pick a new picture.':'';
-  $('imgUrl').value=''; if(draft) showDraft(); $('sheet').hidden=false;
+  $('sheetTitle').textContent=draft?'Your mask':'Make a mask from a photo';
+  $('result').hidden=!draft; $('btnUseCustom').disabled=!draft; $('customMsg').textContent=draft?'Your custom mask. Adjust it, or choose a new photo.':'';
+  $('imgUrl').value=''; $('btnFetch').disabled=true; if(draft) showDraft(); $('sheet').hidden=false;
+  $('btnPick').focus();
 }
 async function closeSheet(){
+  if($('sheet').hidden) return;
   $('sheet').hidden=true;
-  if(wasRunning&&stream){ if(landmarker&&landmarker.runningMode!=='VIDEO') await landmarker.setOptions({runningMode:'VIDEO'}); running=true; lastT=-1; prev=null; loop(); }
+  if(wasRunning&&stream) await resumeLive();
 }
 function showDraft(){
   $('optCover').value=draft.cover; $('optPattern').value=draft.pattern;
   draft.colors.forEach((c,i)=>$('col'+i).value=c);
-  const was=spec; spec=draft; mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,$('customPreview')); spec=was; mesh&&mesh.invalidate(CUSTOM);
+  $('col1').hidden=['plain','knit'].includes(draft.pattern); $('col2').hidden=draft.pattern!=='blobs';
+  const was=spec; spec=draft; mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,$('customPreview'),false); spec=was; mesh&&mesh.invalidate(CUSTOM);
 }
-async function fromImage(bitmap){
-  const r=Math.min(1,512/Math.max(bitmap.width,bitmap.height));
-  const cv=document.createElement('canvas'); cv.width=Math.round(bitmap.width*r); cv.height=Math.round(bitmap.height*r); cv.getContext('2d').drawImage(bitmap,0,0,cv.width,cv.height);
-  $('customMsg').textContent='Reading the picture…';
-  const detect=async c=>{ if(!landmarker) return null; if(landmarker.runningMode!=='IMAGE') await landmarker.setOptions({runningMode:'IMAGE'}); return landmarker.detect(c).faceLandmarks[0]||null; };
+async function fromImage(img){
+  const r=Math.min(1,512/Math.max(img.naturalWidth,img.naturalHeight));
+  const cv=document.createElement('canvas'); cv.width=Math.round(img.naturalWidth*r); cv.height=Math.round(img.naturalHeight*r); cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+  $('customMsg').textContent='Reading the photo…';
+  const detect=async c=>{ if(!landmarker) return null; await setMode('IMAGE'); return landmarker.detect(c).faceLandmarks[0]||null; };
   const a=await analyse(cv,detect); window.__lastAnalysis=a;
   draft=a.spec; $('result').hidden=false; $('btnUseCustom').disabled=false; showDraft();
-  $('customMsg').textContent=!a.faceFound?'No face in that picture, so this uses its colours on a mask shape. Change the shape if you like.'
-    :!a.maskFound?'Found a face but nothing covering it. Took the colours anyway. Pick a shape.'
-    :'Built from the picture. Adjust anything, then use it.';
+  $('customMsg').textContent=!a.faceFound?'No face in that photo, so its colours went on a full-face mask. Change the shape if you like.'
+    :!a.maskFound?'Found a face but no mask on it, so the colours came from the photo. Pick a shape.'
+    :'Built from the photo. Adjust it if you like, then tap Use this mask.';
 }
-async function loadFile(f){ try{ return await createImageBitmap(f,{imageOrientation:'from-image'}); }catch{ return createImageBitmap(f); } }
 $('btnPick').onclick=()=>$('fileCustom').click();
-$('fileCustom').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; try{ await fromImage(await loadFile(f)); }catch{ $('customMsg').textContent='Could not read that file. Try a JPG or PNG.'; } };
+$('fileCustom').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; try{ await fromImage(await loadImage(f)); }catch(err){ $('customMsg').textContent=photoError(err); } };
+$('imgUrl').oninput=()=>{ $('btnFetch').disabled=!$('imgUrl').value.trim(); };
 $('btnFetch').onclick=async()=>{
-  const url=$('imgUrl').value.trim(); if(!url) return;
-  $('customMsg').textContent='Fetching…';
-  try{ const res=await fetch(url,{mode:'cors'}); if(!res.ok) throw 0; await fromImage(await loadFile(await res.blob())); }
-  catch{ $('customMsg').textContent='That site will not let this page read the image. Save it to your photos and choose it instead.'; }
+  const raw=$('imgUrl').value.trim(); if(!raw) return;
+  let u=null; try{ u=new URL(raw); }catch{}
+  if(!u||u.protocol!=='https:'){ $('customMsg').textContent='The link needs to start with https://'; return; }
+  $('customMsg').textContent='Loading the link…'; $('btnFetch').disabled=true;
+  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),15000);
+  try{
+    const res=await fetch(u,{mode:'cors',credentials:'omit',referrerPolicy:'no-referrer',signal:ctl.signal});
+    if(!res.ok) throw new Error('status');
+    const type=res.headers.get('content-type')||'', len=+(res.headers.get('content-length')||0);
+    if(!type.startsWith('image/')||len>25e6) throw new Error('type');
+    await fromImage(await loadImage(await res.blob()));
+  }catch(err){
+    const k=err&&(err.name==='AbortError'?'slow':err.message);
+    $('customMsg').textContent=k==='slow'?'That link took too long. Save the picture to your photos and choose it instead.'
+      :k==='status'?'Nothing at that link. Check it and try again.'
+      :k==='type'?'That link is not a picture. Save the image to your photos and choose it instead.'
+      :k==='big'||k==='decode'?photoError(err)
+      :'Couldn’t load that link. Most sites block it. Save the picture to your photos, then choose it here.';
+  }finally{ clearTimeout(timer); $('btnFetch').disabled=!$('imgUrl').value.trim(); }
 };
 for(const id of ['optCover','optPattern','col0','col1','col2']) $(id).oninput=()=>{ if(!draft) return;
   draft.cover=$('optCover').value; draft.pattern=$('optPattern').value; draft.colors=[$('col0').value,$('col1').value,$('col2').value]; showDraft(); };
 $('btnSheetClose').onclick=closeSheet;
 $('sheet').onclick=e=>{ if(e.target===$('sheet')) closeSheet(); };
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
 $('btnUseCustom').onclick=async()=>{
   spec=draft; try{ localStorage.setItem('maskup.custom',JSON.stringify(spec)); }catch{}
   mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,chips.custom.querySelector('canvas'));
   await closeSheet(); selectMask(CUSTOM);
 };
 
-// ---------- Save ----------
+// ---------- Save and share ----------
+const canShareFiles=!!(navigator.canShare&&navigator.canShare({files:[new File([''],'x.png',{type:'image/png'})]}));
 // The live canvas is shown cropped to the screen (object-fit: cover). Save what the person saw, not the whole sensor frame.
 function visibleRect(){
   const W=out.width,H=out.height;
@@ -967,14 +1176,21 @@ function visibleRect(){
   const w=Math.min(W,r.width/s), h=Math.min(H,r.height/s);
   return {x:(W-w)/2,y:(H-h)/2,w,h};
 }
+async function deliver(blob,name,what){
+  const file=new File([blob],name,{type:blob.type});
+  if(canShareFiles&&navigator.canShare({files:[file]})){
+    try{ await navigator.share({files:[file]}); hint.textContent=`Shared. Retake for another ${what}.`; return; }
+    catch(e){ if(e.name==='AbortError') return; }
+  }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),60000);
+  say('Saved to your downloads.'); hint.textContent=`Saved. Retake for another ${what}.`;
+}
 $('btnSave').onclick=()=>{
+  if(stage.classList.contains('clip')){ if(clipBlob) deliver(clipBlob,'masked-clip.'+(clipBlob.type.includes('mp4')?'mp4':'webm'),'clip'); return; }
   const v=visibleRect(), t=document.createElement('canvas'); t.width=Math.round(v.w); t.height=Math.round(v.h);
   t.getContext('2d').drawImage(out,v.x,v.y,v.w,v.h,0,0,t.width,t.height);
-  t.toBlob(async blob=>{
-    const file=new File([blob],'masked-selfie.png',{type:'image/png'});
-    if(navigator.canShare&&navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file]}); return; }catch{} }
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='masked-selfie.png'; a.click(); say('Saved masked-selfie.png');
-  },'image/png');
+  t.toBlob(blob=>{ if(!blob){ say('Could not save that photo.'); return; } deliver(blob,'masked-selfie.png','photo'); },'image/png');
 };
 </script>
 </body>

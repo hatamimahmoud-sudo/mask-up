@@ -6,7 +6,7 @@ Live face masks in the browser. Point the camera at yourself, pick a mask, and i
 
 - **Tracking:** MediaPipe Tasks Vision Face Landmarker, 478 points per face, up to two faces.
 - **Masks:** twenty-seven of them, from a surgical mask to a balaclava, clay and sheet skin masks, a skull, a beard and bunny ears, plus a custom one built from a picture you choose. Painted as textures onto the 898-triangle face mesh in WebGL and re-lit from the video, so they wrap the nose and cheeks, move with the mouth and sit in the same light as the face.
-- **Output:** freeze the frame, then share or download a PNG.
+- **Output:** take a photo, or record a clip with sound and swap masks while it records. Share straight to the share sheet, or save.
 
 ## Checking mask geometry
 
