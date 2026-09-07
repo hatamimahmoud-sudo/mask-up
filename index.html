@@ -837,7 +837,7 @@ const okSpec=x=>x&&typeof x==='object'&&['full','lower','eyes','auto'].includes(
 let spec=null; try{ const x=JSON.parse(localStorage.getItem('maskup.custom')); if(okSpec(x)) spec={cover:x.cover,pattern:x.pattern,mouth:!!x.mouth,colors:x.colors};
   if(spec&&x.mode==='lift'&&typeof x.lift==='string'&&x.lift.startsWith('data:image/')){ spec.mode='lift'; const im=new Image(); im.onload=()=>{ spec.lift=im; window.dispatchEvent(new Event('customready')); }; im.src=x.lift; }
   if(spec&&x.mode==='program'&&okProgram(x.program)){ spec.mode='program'; spec.program=okProgram(x.program); }
-  if(spec&&x.mode==='image'&&x.fit&&typeof x.fit.img==='string'&&x.fit.img.startsWith('data:image/')&&x.fit.box){ spec.mode='image'; const im=new Image(); im.onload=()=>{ spec.fit={canvas:im,box:x.fit.box,eyes:x.fit.eyes||null}; window.dispatchEvent(new Event('customready')); }; im.src=x.fit.img; } }catch{}
+  if(spec&&x.mode==='image'&&x.fit&&typeof x.fit.img==='string'&&x.fit.img.startsWith('data:image/')&&x.fit.box){ spec.mode='image'; const im=new Image(); im.onload=()=>{ spec.fit={canvas:im,box:x.fit.box,eyes:x.fit.eyes||null,nose:x.fit.nose||null,mouth:x.fit.mouth||null}; window.dispatchEvent(new Event('customready')); }; im.src=x.fit.img; } }catch{}
 function drawSpec(c,g,sp){
   const {P,off,fw}=g, r=rng(21);
   if(sp.mode==='program'&&sp.program){ runProgram(c,g,sp.program.tex); return; }
@@ -981,7 +981,7 @@ function fitImage(photo){
   if(sizes[keep]<W*H*.03) return null;
   // eyes: dark compact blobs in the top two thirds of the artwork, as a matched pair
   const N=128, sx=W/N, sy=H/N, dark=new Uint8Array(N*N), seen=new Uint8Array(N*N), blobs=[];
-  let eyes=null;
+  let eyes=null, nose=null, mouth=null;
   const findEyes=piece=>{
   for(let j=0;j<N;j++) for(let i=0;i<N;i++){ const pi=Math.floor((j+.5)*sy)*W+Math.floor((i+.5)*sx), q=4*pi; dark[j*N+i]=label[pi]===piece&&lum(q)<80?1:0; }
   seen.fill(0); blobs.length=0;
@@ -1028,23 +1028,58 @@ function fitImage(photo){
       if(!ok){ d[4*i+3]=0; continue; } if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py; }
     x.putImageData(id,0,0);
     box={x:x0,y:y0,w:x1-x0+1,h:y1-y0+1};
+    // the nose and the mouth: compact marks that are not the face colour, below the eye line and between
+    // the eyes, and not touching the outline (the outline itself touches the transparent outside)
+    const marks=[]; seen.fill(0);
+    for(let j=0;j<N;j++) for(let i=0;i<N;i++){ const px=Math.floor((i+.5)*sx), py=Math.floor((j+.5)*sy), pi=py*W+px, q=4*pi;
+      dark[j*N+i]=d[q+3]&&Math.abs(px-cx)<.45*ed&&py>cy+.1*ed&&py<cy+1.9*ed&&(lum(q)<80||Math.hypot(d[q]-seed[0],d[q+1]-seed[1],d[q+2]-seed[2])>=48)?1:0; }
+    for(let i=0;i<N*N;i++){ if(!dark[i]||seen[i]) continue; const st=[i]; seen[i]=1; let n=0,bx0=N,by0=N,bx1=0,by1=0,mx=0,my=0,edge=false;
+      while(st.length){ const j=st.pop(), px=j%N, py=(j-px)/N; n++; mx+=px; my+=py; bx0=Math.min(bx0,px); bx1=Math.max(bx1,px); by0=Math.min(by0,py); by1=Math.max(by1,py);
+        for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const xx=px+dx,yy=py+dy; if(xx<0||yy<0||xx>=N||yy>=N){ edge=true; continue; }
+          const k=yy*N+xx; if(dark[k]&&!seen[k]){ seen[k]=1; st.push(k); } else if(!dark[k]&&!d[4*(Math.floor((yy+.5)*sy)*W+Math.floor((xx+.5)*sx))+3]) edge=true; } }
+      const bw=(bx1-bx0+1)*sx, bh=(by1-by0+1)*sy;
+      if(!edge&&n>=3&&bw<.8*ed&&bh<.8*ed) marks.push({x:mx/n*sx,y:my/n*sy,n}); }
+    marks.sort((a,b)=>a.y-b.y);
+    if(marks.length){ nose=[marks[0].x,marks[0].y]; const m=marks.find(k=>k.y>marks[0].y+.15*ed); if(m) mouth=[m.x,m.y]; }
   }
-  return {canvas:photo,box,eyes};
+  return {canvas:photo,box,eyes,nose,mouth};
 }
 // Place a fitted artwork on a face: the transform from artwork pixels to face space, given the eye
-// centres (or the face box) in that space. Pinned to the eyes when the artwork has them.
+// centres (or the face box) in that space. Pinned to the eyes when the artwork has them. A character's
+// nose sits just under its eyes where a person's is much lower, so below the eye line the artwork is
+// stretched in bands: eye line to nose, nose to mouth, and on down to the chin, each with its own
+// vertical scale, so the drawn nose lands on the nose and the drawn mouth on the mouth.
 function fitTransform(fit,g){
   const {P,centroid,fw,fh,off}=g;
   if(fit.eyes){
     const [a,b]=fit.eyes, ea=centroid(EYE_R), eb=centroid(EYE_L);
     const s=Math.hypot(eb.x-ea.x,eb.y-ea.y)/Math.max(1,Math.hypot(b[0]-a[0],b[1]-a[1]));
     const r=Math.atan2(eb.y-ea.y,eb.x-ea.x)-Math.atan2(b[1]-a[1],b[0]-a[0]);
-    return {s,r,tx:ea.x,ty:ea.y,ox:a[0],oy:a[1]};
+    const t={s,r,tx:ea.x,ty:ea.y,ox:a[0],oy:a[1]};
+    if(fit.nose){
+      // how far below the eye line each face feature sits, measured along the artwork's down once rotated
+      const drop=p=>-(p.x-ea.x)*Math.sin(r)+(p.y-ea.y)*Math.cos(r);
+      const knots=[[a[1],0],[fit.nose[1],drop(P(4))]];
+      if(fit.mouth) knots.push([fit.mouth[1],drop(centroid(LIPS))]);
+      knots.push([fit.box.y+fit.box.h,drop(P(152))]);
+      const bands=[]; let D=0;
+      for(let k=1;k<knots.length;k++){ const [v0]=knots[k-1], [v1,d1]=knots[k]; if(v1<=v0+1) continue;
+        const ky=Math.min(3,Math.max(.6,(d1-D)/(s*(v1-v0)))); bands.push({v0,v1,ky,D}); D+=ky*s*(v1-v0); }
+      if(bands.length) t.bands=bands;
+    }
+    return t;
   }
   const c=off(P(197),.02,0), s=fw*1.15/fit.box.w;
   return {s,r:g.roll,tx:c.x,ty:c.y,ox:fit.box.x+fit.box.w/2,oy:fit.box.y+fit.box.h/2};
 }
-function drawFitted(c,fit,t){ c.save(); c.translate(t.tx,t.ty); c.rotate(t.r); c.scale(t.s,t.s); c.translate(-t.ox,-t.oy); c.drawImage(fit.canvas,0,0); c.restore(); }
+function drawFitted(c,fit,t){
+  // one band: the artwork row v0 lands D below the anchor, and rows v0 to v1 are drawn at vertical scale ky
+  const band=(v0,v1,ky,D)=>{ c.save(); c.translate(t.tx,t.ty); c.rotate(t.r); c.translate(0,D); c.scale(t.s,t.s*ky); c.translate(-t.ox,-v0);
+    c.beginPath(); c.rect(-1e5,Math.max(v0,-1e5)-.5,2e5,Math.min(v1,1e5)-Math.max(v0,-1e5)+1); c.clip(); c.drawImage(fit.canvas,0,0); c.restore(); };
+  if(!t.bands){ band(t.oy,1e5,1,0); band(t.oy,-1e5,1,0); return; }
+  band(t.oy,-1e5,1,0);
+  for(const b of t.bands) band(b.v0,b===t.bands[t.bands.length-1]?1e5:b.v1,b.ky,b.D);
+}
 
 // Read a picture: is there a face, which parts of it are covered, and what colour is the covering.
 // Two routes. If enough of the face is not skin-coloured, the mask is that: its colour is the dominant
@@ -1877,7 +1912,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
 $('btnUseCustom').onclick=async()=>{
   spec=draft;
   try{ const x={...spec}; if(spec.mode==='lift'&&spec.lift){ x.lift=spec.lift.toDataURL?spec.lift.toDataURL('image/png'):spec.lift.src; }
-    if(spec.mode==='image'&&spec.fit){ const f=spec.fit; x.fit={img:f.canvas.toDataURL?f.canvas.toDataURL('image/png'):f.canvas.src,box:f.box,eyes:f.eyes}; }
+    if(spec.mode==='image'&&spec.fit){ const f=spec.fit; x.fit={img:f.canvas.toDataURL?f.canvas.toDataURL('image/png'):f.canvas.src,box:f.box,eyes:f.eyes,nose:f.nose,mouth:f.mouth}; }
     if(spec.mode==='program') x.program=spec.program;
     localStorage.setItem('maskup.custom',JSON.stringify(x)); }catch{}
   mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,chips.custom.querySelector('canvas'));
