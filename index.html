@@ -257,16 +257,37 @@ function shade(c,g,pathFn,top,bottom,k=.28,rule='nonzero'){
 
 // Full-face cover with holes: the whole mesh (inset by edge), minus eyes, lips and nostrils.
 // Fill with 'evenodd' afterwards. A negative edge overruns the mesh so no skin shows at the rim.
+// cutout: a hand-cut opening, a rounded polygon through the given corners (r is how far each corner is rounded)
+function cutout(c,g,K,r=.32){
+  const n=K.length, at=i=>K[(i+n)%n];
+  const x0=g.lerp(at(0),at(1),r); c.moveTo(x0.x,x0.y);
+  for(let i=1;i<=n;i++){ const e=g.lerp(at(i),at(i-1),r), x=g.lerp(at(i),at(i+1),r); c.lineTo(e.x,e.y); c.quadraticCurveTo(at(i).x,at(i).y,x.x,x.y); }
+  c.closePath();
+}
+// height of point p above point o, in face heights
+const rise=(g,p,o)=>((p.x-o.x)*g.up.x+(p.y-o.y)*g.up.y)/g.fh;
 function coverPath(c,g,o={}){
   const {P,lerp,ring,fw,fh,off,centroid,dist}=g;
   path(c,inset(g,FACE_OVAL,o.edge??.02));
   if(o.eyes==='wide'){
-    // a socket-sized opening, brow to under-eye, the way a sheet mask is cut
-    for(const [E,a,b] of [[EYE_R,33,133],[EYE_L,362,263]]){ const e=off(centroid(E),.04,0), rx=dist(P(a),P(b))*1.15, ry=fh*.095;
-      c.moveTo(e.x+rx*Math.cos(g.roll),e.y+rx*Math.sin(g.roll)); c.ellipse(e.x,e.y,rx,ry,g.roll,0,7); c.closePath(); }
+    // the way a sheet mask is cut: a rounded window round each eye, out past the corners, up over the brow,
+    // the outer end a touch higher, so eyes and brows both show
+    for(const [E,B,oi,ii] of [[EYE_R,BROW_R,33,133],[EYE_L,BROW_L,263,362]]){
+      const oc=P(oi), ic=P(ii), e=centroid(E), top=rise(g,centroid(B),e)+.035, bot=-.07;
+      const oe=lerp(ic,oc,1.42), ie=lerp(oc,ic,1.22);
+      cutout(c,g,[off(oe,top+.015,0),off(ie,top,0),off(ie,bot,0),off(oe,bot-.005,0)],.38);
+    }
   } else if(o.eyes){ addPath(c,ring(EYE_R,o.eyes)); addPath(c,ring(EYE_L,o.eyes)); }
-  if(o.lips) addPath(c,ring(LIPS,o.lips));
-  if(o.nostrils) for(const i of [98,327]){ const p=lerp(P(2),P(i),.55); c.moveTo(p.x+fw*.018,p.y); c.arc(p.x,p.y,fw*.018,0,7); c.closePath(); }
+  if(o.nose){
+    // the nose stays bare from the middle of the bridge down past the nostrils
+    const w=dist(P(98),P(327))/fw*.64, t=P(195), b=P(2);
+    cutout(c,g,[off(t,.01,-w),off(t,.01,w),off(b,-.03,w),off(b,-.03,-w)],.4);
+  }
+  if(o.lips==='wide'){
+    const m=centroid(LIPS), a=lerp(P(291),P(61),1.14), b=lerp(P(61),P(291),1.14), top=rise(g,P(0),m)+.03, bot=rise(g,P(17),m)-.03;
+    cutout(c,g,[off(a,top,0),off(b,top,0),off(b,bot,0),off(a,bot,0)],.42);
+  } else if(o.lips) addPath(c,ring(LIPS,o.lips));
+  if(o.nostrils&&!o.nose) for(const i of [98,327]){ const p=lerp(P(2),P(i),.55); c.moveTo(p.x+fw*.018,p.y); c.arc(p.x,p.y,fw*.018,0,7); c.closePath(); }
 }
 // Deterministic random, so freckles and camo blobs land in the same place every time
 const rng=seed=>()=>(seed=(seed*1664525+1013904223)>>>0)/4294967296;
@@ -468,7 +489,7 @@ const MASKS=[
   {id:'clay',name:'Clay',
     tex(c,g){
       const {P,fw}=g, r=rng(7);
-      const cover=()=>coverPath(c,g,{edge:.03,eyes:'wide',lips:1.12,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.05,eyes:'wide',nose:true,lips:'wide'});
       c.fillStyle='rgba(143,175,126,.96)'; cover(); c.fill('evenodd');
       c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(55,75,45,.42)'; c.lineWidth=fw*.004; c.lineCap='round';
       for(let i=0;i<11;i++){ let a=g.off(P(197),-.15+(r()-.5)*.7,(r()-.5)*.9); c.beginPath(); c.moveTo(a.x,a.y);
@@ -480,7 +501,7 @@ const MASKS=[
   {id:'sheet',name:'Sheet',
     tex(c,g){
       const {P,fw}=g, r=rng(3);
-      const cover=()=>coverPath(c,g,{edge:.04,eyes:'wide',lips:1.3,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.06,eyes:'wide',nose:true,lips:'wide'});
       c.fillStyle='rgba(255,255,255,.82)'; cover(); c.fill('evenodd');
       c.strokeStyle='rgba(255,255,255,.95)'; c.lineWidth=fw*.01; cover(); c.stroke();
       c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(0,0,0,.07)'; c.lineWidth=fw*.005;
@@ -491,7 +512,7 @@ const MASKS=[
   {id:'charcoal',name:'Charcoal',
     tex(c,g){
       const {P,off,fw}=g;
-      const cover=()=>coverPath(c,g,{edge:.03,eyes:'wide',lips:1.12,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.05,eyes:'wide',nose:true,lips:'wide'});
       c.fillStyle='rgba(24,24,26,.94)'; cover(); c.fill('evenodd');
       c.save(); cover(); c.clip('evenodd');
       for(const [p,rad] of [[off(P(10),-.12,0),fw*.18],[off(P(197),-.08,0),fw*.09],[off(P(50),0,0),fw*.09],[off(P(280),0,0),fw*.09]]){
@@ -504,7 +525,7 @@ const MASKS=[
   {id:'gold',name:'Gold',
     tex(c,g){
       const {P,off,fw}=g;
-      const cover=()=>coverPath(c,g,{edge:.03,eyes:'wide',lips:1.1,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.05,eyes:'wide',nose:true,lips:'wide'});
       c.fillStyle='#E4B44C'; cover(); c.fill('evenodd');
       shade(c,g,cover,P(10),P(152),.32,'evenodd');
       c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(255,246,200,.28)'; c.lineWidth=fw*.05; c.lineCap='round';
@@ -516,7 +537,7 @@ const MASKS=[
   {id:'mud',name:'Mud',
     tex(c,g){
       const {P,dist,fw}=g;
-      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.6,lips:1.12,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.05,eyes:1.6,nose:true,lips:'wide'});
       c.fillStyle='rgba(122,82,54,.96)'; cover(); c.fill('evenodd');
       shade(c,g,cover,P(10),P(152),.18,'evenodd');
       // cucumber slices over the eyes
@@ -1110,7 +1131,7 @@ const ptOf=(g,p)=>{ if(!Array.isArray(p)) return g.P(197); return g.off(anchor(g
 function regionPath(c,g,o){
   const {P,off}=g;
   switch(o.op){
-    case 'cover': coverPath(c,g,{edge:num(o.edge,-.1,.15,.02),eyes:o.eyes==='wide'?'wide':num(o.eyes,0,3,1.35),lips:num(o.lips,0,3,1.1),nostrils:!!o.nostrils}); return 'evenodd';
+    case 'cover': coverPath(c,g,{edge:num(o.edge,-.1,.15,.02),eyes:o.eyes==='wide'?'wide':num(o.eyes,0,3,1.35),nose:!!o.nose,lips:o.lips==='wide'?'wide':num(o.lips,0,3,1.1),nostrils:!!o.nostrils}); return 'evenodd';
     case 'lower': { const J=inset(g,JAW,num(o.inset,-.05,.15,.07)), lC=off(J[J.length-1],-.05,0), rC=off(J[0],-.05,0), t=off(P(197),num(o.top,-.2,.2,.02),0);
       c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); return 'nonzero'; }
     case 'eyemask': { path(c,eyeShape(g,num(o.lift,-.05,.15,.06),false)); const h=num(o.holes,0,3,1.6); if(h){ addPath(c,g.ring(EYE_R,h)); addPath(c,g.ring(EYE_L,h)); } return 'evenodd'; }
@@ -1733,7 +1754,7 @@ Anchors: forehead (top of the face), brow (between the brows), browL, browR, eye
 Sizes: r, rx, ry, width are fractions of face width. Colours are hex strings.
 
 REGION OPS (fill and/or stroke a shape; add "shade": 0..0.5 for curvature shading; "shadow": true for a soft drop shadow; "alpha": 0..1)
-- {"op":"cover","fill","edge":0.02,"eyes":1.35,"lips":1.1,"nostrils":true} full face. eyes/lips scale the holes (0 = no hole; "wide" for eyes gives a socket-sized opening that shows the brows, right for sheet and clay style skin masks). edge inset from the outline (negative overruns it).
+- {"op":"cover","fill","edge":0.02,"eyes":1.35,"lips":1.1,"nostrils":true} full face. eyes/lips scale the holes (0 = no hole). "wide" for eyes gives a hand-cut window that shows the eye and the brow, "wide" for lips a window round the mouth, and "nose":true leaves the nose bare from mid bridge down, the way sheet and clay skin masks are cut. edge inset from the outline (negative overruns it).
 - {"op":"lower","fill","inset":0.07,"top":0.02} lower half, like a surgical mask or bandana: from below the eyes down over the chin.
 - {"op":"eyemask","fill","lift":0.06,"holes":1.6} across the eyes from brows to cheekbones, with eye holes.
 - {"op":"band","fill","from":0.1,"to":-0.1} horizontal band across the face between two heights (relative to the nose bridge).
