@@ -30,8 +30,11 @@ Netlify drop works too. Any static host over HTTPS is fine.
 - **Tracking:** MediaPipe Tasks Vision `FaceLandmarker`, loaded as an ES module from `cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10`. WASM from the same package. Model file from `storage.googleapis.com/mediapipe-models/face_landmarker/...float16/1/face_landmarker.task`. GPU delegate with CPU fallback. 478 landmarks per face including irises. `numFaces: 2`.
 - **Modes:** `VIDEO` running mode for the live camera (`detectForVideo` in a `requestAnimationFrame` loop, only when `video.currentTime` changes). Switches to `IMAGE` mode for uploaded photos and back again when the camera restarts.
 - **Smoothing:** `smooth()` eases every landmark towards its detected position at alpha 0.5, so the masks sit still on a still face. Reset with `prev = null` whenever the source changes (camera start, photo load).
-- **Layout:** the camera is the page. `.stage` is fixed full screen, the canvas is `object-fit: cover`, and the title, hint, shutter, actions and mask tray float over it in `.dock`. Uploaded photos switch to `object-fit: contain` so nothing is cropped. Save crops the PNG to what was on screen (`visibleRect`).
-- **Camera:** asks for 1080x1920 in the screen's orientation. Some phones read width and height in sensor orientation and hand a portrait screen a landscape frame, so `startCamera` checks `videoWidth > videoHeight` and asks once more with the two swapped.
+- **Layout:** the camera is the page. `.stage` is fixed full screen, the canvas is `object-fit: cover`. The brand and the hint sit top left, the recording timer top centre, and the Photo/Video switch, shutter, Flip, actions and mask tray float over the bottom in `.dock`. Uploaded photos switch to `object-fit: contain` so nothing is cropped. Save crops the PNG to what was on screen (`visibleRect`). Stage states are classes on `#stage`: none (landing), `live` (plus `video` when in video mode, plus `recording`), `frozen`, `still`, `clip`.
+- **Camera:** asks for 1080x1920 in the screen's orientation. Some phones read width and height in sensor orientation and hand a portrait screen a landscape frame, so `startCamera` checks `videoWidth > videoHeight` and asks once more with the two swapped. Every start bumps `gen`, and each `await` inside checks it, so a double tap on Flip cannot leak a stream or start two loops. `stopCamera` also bumps it. The track's `onended` and `visibilitychange` restart or reset the camera when iOS takes it away (a call, a lock, another app). `video.onresize` follows a rotation. `mirror` is its own flag rather than being read off `facing`, so a still photo does not un-mirror the next camera start.
+- **Running mode:** `mode` tracks the landmarker's running mode (the object does not expose it) and `setMode()` is the only thing that changes it. `resumeLive()` owns the return to the live state from frozen, clip or the custom sheet, and always goes through `setMode('VIDEO')`. `loop()` is wrapped in try/catch: a throw stops the camera and returns to the landing screen with a message, instead of leaving a dead loop under a live shutter.
+- **Video:** the Photo/Video switch above the shutter. In video mode the shutter starts and stops a `MediaRecorder` on `recCanvas.captureStream(30)`, where `recCanvas` is the visible crop of the output canvas redrawn every frame (`recordFrame`), plus the microphone asked for on first use. The live loop keeps running, so the tray works mid-clip. Safari records MP4, Chrome WebM. Capped at 60 s. The clip plays back in `#clip` over the stage. Flip, the mode switch and the custom sheet are disabled while recording.
+- **Sharing:** `deliver()` uses `navigator.share` with a file where the browser supports it (`canShareFiles` is tested once at startup and picks the button label, Share or Save), else a download link. A cancelled share sheet (`AbortError`) does nothing rather than falling through to a download.
 - **Rendering:** one `<canvas id="out">`. Each frame draws the video, then `composite()` draws each face's mask. Front camera is mirrored with a canvas transform (`translate(W,0); scale(-1,1)`) so the saved image matches the preview. Back camera is not mirrored.
 - **Masks:** each entry in `MASKS` has up to three drawing functions, all taking `(ctx, g)` where `g = geom(landmarks, W, H)`.
   - `under(ctx, g)` paints anything behind the face mesh (the balaclava hood, the gaiter's neck), flat in screen space, before the texture. Draw it as a ring around the face, never over it, or it shows through the texture's holes.
@@ -40,7 +43,7 @@ Netlify drop works too. Any static host over HTTPS is fine.
   - `geom` gives `P(i)` for pixel coordinates of landmark `i`, face height `fh`, face width `fw`, unit vectors `up` and `rt`, `off(point, u, v)` to offset along the face axes as fractions of `fh`/`fw`, `lerp`, `dist`, `centroid`, `ring(ids, k)` to scale a landmark loop about its centroid, and `roll` (head tilt in radians). The same drawing code works in texture space and screen space because everything is relative to the face axes.
   - `inset(g, ids, k)` pulls an outline loop inwards so a mask edge sits on skin rather than on the silhouette. `shadow` and `shade` add a drop shadow and a curvature gradient. All three are what stop a mask reading as a sticker. `shade` takes a fill rule as its last argument. Pass `'evenodd'` for any path with holes or the multiply gradient paints into the holes.
   - `coverPath(ctx, g, {edge, eyes, lips, nostrils})` builds a full-face cover with holes, for the skin-care masks, skull, clown and the like. Fill it with `'evenodd'`. `ribbing` draws knit lines, `rng(seed)` is a deterministic random for freckles, camo and beard hairs.
-- **Mesh renderer (`mesh`):** a small WebGL program. Textures are 256 px for the tray thumbnails (all cached) and 1024 px for the mask in use (only the current one is kept), so twenty-eight masks do not mean twenty-eight 4 MB canvases on a phone. `mesh.invalidate(m)` drops a mask's textures after its drawing changes. Vertex positions are the 468 normalised landmarks, UVs and triangles come from `MESH`. The fragment shader samples the mask texture and re-lights it from a 32 px wide copy of the frame (`uLight`), relative to the mean brightness of the face box (`uMean`), so the mask sits in the same light as the face. The light map is deliberately tiny so lips and brows under the mask do not print through. Knobs: `relight` strength in `render()` (0.75), the clamp range in the shader (0.7 to 1.5), and the light map width (32). Where WebGL is missing, `composite()` draws `tex()` flat in screen space instead.
+- **Mesh renderer (`mesh`):** a small WebGL program. Textures are 256 px for the tray thumbnails (all cached) and 1024 px for the mask in use (only the current one is kept), so twenty-eight masks do not mean twenty-eight 4 MB canvases on a phone. `mesh.invalidate(m)` drops a mask's textures after its drawing changes. The GL layer is capped at 960 px on the long side and scaled up on the copy. No MSAA and no depth buffer (the mask edge comes from texture alpha). Fragment precision is highp where available. Back faces are culled so triangles that fold over at strong yaw do not paint over the near side. Context loss sets `mesh.lost`, and `composite()` falls back to flat drawing until the context is restored. The mean-brightness loop is clamped to the light map, because a face half out of frame used to read past its edge and send NaN to the shader. Vertex positions are the 468 normalised landmarks, UVs and triangles come from `MESH`. The fragment shader samples the mask texture and re-lights it from a 32 px wide copy of the frame (`uLight`), relative to the mean brightness of the face box (`uMean`), so the mask sits in the same light as the face. The light map is deliberately tiny so lips and brows under the mask do not print through. Knobs: `relight` strength in `render()` (0.75), the clamp range in the shader (0.7 to 1.5), and the light map width (32). Where WebGL is missing, `composite()` draws `tex()` flat in screen space instead.
 - **Face mesh data (`MESH`):** the MediaPipe canonical face model, packed as base64 Uint16 in the page: `xy` (the canonical face in a 3:4 frame), `uv` (texture coordinates, v flipped so y runs down like an image) and `tri` (898 triangles). About 12 KB. Rebuild from `canonical_face_model.obj` in the MediaPipe repo if it ever needs to change. Per-vertex UVs come from the `f v/vt` records, not from vt order.
 - **Reference face:** `REF` is the canonical face with the ten iris points synthesised. `refFace(ctx, g)` draws a plain face from it. Used for the tray thumbnails and by `tools/preview.mjs`.
 - **Capture and save:** shutter freezes the loop (canvas keeps the last frame). Save uses `navigator.share` with a PNG file where supported (iOS share sheet), else a download link. Back to camera resumes the loop.
@@ -68,11 +71,13 @@ Netlify drop works too. Any static host over HTTPS is fine.
 Masks, in tray order:
 
 - Originals: Surgical, Hero, Masquerade, Cat, Shades, Bandana.
-- Full covers: Balaclava, Gaiter, Clay mask, Sheet mask, Charcoal, Gold mask, Mud mask (with cucumber slices), Skull, Clown.
-- Face paint: Vampire, Camo, Warpaint, Freckles, Gems.
+- Full covers: Balaclava, Gaiter, Clay, Sheet, Charcoal, Gold, Mud (with cucumber slices), Skull, Clown.
+- Face paint: Vampire, Camo, Game day, Freckles, Gems.
 - Hair: Beard, Moustache.
 - Off the face: Eye patch, Bear ears, Bunny ears, Antennae.
 - Custom, see below.
+
+The tray is built from `GROUPS` in the picker, not from the order of `MASKS`: None and Custom first, then face coverings, eye masks, skin masks, face paint, hair and headwear, with a thin rule between groups.
 
 All original designs, no branded or copyrighted characters. Keep it that way.
 
@@ -83,6 +88,8 @@ The last chip opens a sheet where the person picks a picture (file, or a link th
 - `analyse(img, detect)` runs face detection on the picture. If a face is found it tests eight landmarks in each of six regions (forehead, eyes, nose, cheeks, mouth, chin) against a YCbCr skin box. Regions where at least half the points are not skin count as covered, and the pattern of covered regions picks the shape: full face (with a mouth hole if the mouth is uncovered), lower face, or eyes. Colours come from the non-skin pixels at the remaining landmarks, skipping eyes, brows and lips, quantised and then merged so shades of one colour count as one colour. One dominant colour means plain, otherwise dots or blobs. With no face it takes the colours of the whole picture and defaults to a full cover.
 - `drawSpec(ctx, g, spec)` is the parametric mask: `{cover, mouth, pattern, colors[3]}`. Shape, pattern and the three colours are editable in the sheet. The spec is saved in `localStorage` under `maskup.custom`.
 - Known limits: olive and tan sit inside the skin box, so camouflage reads as partly skin. Pasted links only work when the host sends CORS headers, which most image hosts do not. The message tells the person to save the image and choose it instead.
+- The spec from `localStorage` is validated by `okSpec` before use. A bad value is ignored rather than breaking the tray on every reload.
+- Pasted links must be `https`, are fetched with no credentials and no referrer, time out after 15 s, and must come back as `image/*` under 25 MB. Uploaded and fetched pictures are decoded through an `<img>` so the pixel count is known before decoding, and anything over 40 megapixels is refused.
 - `window.__lastAnalysis` holds the last result, for tests.
 
 ## Checking mask geometry
@@ -100,10 +107,15 @@ To place something new, render a landmark map: draw `refFace` large and label `g
 
 ## Design tokens
 
-- Background `#26222E`, stage `#0E0C12`, ink `#F6F2EA`, muted `#A9A2B4`, accent `#FF6B8B` on `#2A0A12`, chips `#3A3545`.
-- System font stack. Headline 34px, weight 800, tight tracking. Sentence case everywhere, no all-caps labels.
-- Layout: single column, max 480px, 3:4 stage with rounded corners, iOS-style shutter ring, circular mask tray under the stage, controls below.
+- Panel `#26222E` (the sheet), stage `#0E0C12` (the page), ink `#F6F2EA`, muted `#A9A2B4` (on solid surfaces only, never over video), accent `#FF6B8B` on `#2A0A12`, chips `#3A3545`, thumbnail disc `#EADFD2`, record red `#E0262E`.
+- System font stack. Headline 40px, weight 800, tight tracking. Then 22 (sheet title), 18 (brand), 15 (body), 13 (toast, mode switch), 12 (chip labels). Sentence case everywhere, no all-caps labels.
+- Radii: 22px for the sheet panel, 10px for selects, pills for everything else. Touch targets 44px or more.
+- Layout: full-screen camera with a floating dock. iOS-style shutter ring, circular mask tray in groups, hint under the brand at the top.
 - Copy: plain verbs, tells the person what to do next ("Line up your face and tap the shutter", "No face found in that photo").
+
+## Review round
+
+Ten review agents went over the app (state logic, WebGL, iOS and Android, security, an automated run, mask artwork, interface, a taste test, copy, brand). Their fixes are in. Their bigger asks, in the order they were raised, are the backlog below. Not taken up: self-hosting MediaPipe (the version is pinned instead), tabs in the tray (grouping with rules instead), and cutting masks (the weak ones were reworked).
 
 ## Still to check on a real face
 
@@ -121,9 +133,12 @@ The first live test on an iPhone showed the flat version. The mesh version has b
 
 ## Backlog
 
-- More masks and colour variants, tap a selected mask again to cycle colours.
-- Video clips: `MediaRecorder` on `out.captureStream()`, share as MP4/WebM.
-- Two-person masks already work, could add per-face mask selection.
+- A beauty base layer (smooth, glow, blush) that stacks under any mask. The most used filter category everywhere, and absent here.
+- Two-person masks already work. Matching and opposite pairs, and a swap, would make the duo case worth sharing.
+- A randomiser ("spin for a mask") and seasonal packs, starting with Halloween.
+- Video: a hold-to-record gesture on the shutter, and a way to trim the clip.
+- More masks and colour variants, tap a selected mask again to cycle colours. Ideas from the art review: a luchador, a chrome half-plate, a knit beanie.
+- Custom: point the camera at a mask you own, then adjust it live, instead of a form.
 - Native iOS version with ARKit face tracking if Mahmoud wants true depth-sensor fitting. Note for that conversation: LiDAR is rear-facing and not available to web pages, and TikTok-style filters use camera face mesh, not LiDAR, so the web version is already the same class of effect.
 
 ## Prior version
