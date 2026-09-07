@@ -959,10 +959,32 @@ function fitImage(photo){
   if(!eyes){ keep=order[0]; box=pieceBox(keep); }
   for(let i=0;i<W*H;i++) if(label[i]!==keep) d[4*i+3]=0;
   x.putImageData(id,0,0);
-  // with eyes found, keep a head's worth around them: ears and bows stay, bodies go
-  if(eyes){ const [a,b]=eyes, ed=Math.hypot(b[0]-a[0],b[1]-a[1]), cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2+ed*.3;
-    x.globalCompositeOperation='destination-in'; x.fillStyle='#000'; x.beginPath(); x.ellipse(cx,cy,ed*2.1,ed*2.5,Math.atan2(b[1]-a[1],b[0]-a[0]),0,7); x.fill(); x.globalCompositeOperation='source-over';
-    box={x:Math.max(0,cx-ed*2.1),y:Math.max(0,cy-ed*2.5),w:Math.min(W,cx+ed*2.1)-Math.max(0,cx-ed*2.1),h:Math.min(H,cy+ed*2.5)-Math.max(0,cy-ed*2.5)}; }
+  // with eyes found, keep the head and lose the body. The head is the flood of the face colour from between
+  // the eyes, which stops at the outline, widened a little for the outline itself, plus anything above the
+  // eyes near it (a bow, a hat) and a band at eye level for whiskers. If the flood finds nothing usable, an
+  // ellipse around the eyes does the job instead.
+  if(eyes){
+    const [a,b]=eyes, ed=Math.hypot(b[0]-a[0],b[1]-a[1]), cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2;
+    const seedI=Math.round(cy)*W+Math.round(cx), sq=4*seedI, seed=[d[sq],d[sq+1],d[sq+2]];
+    const head=new Uint8Array(W*H); let hn=0;
+    if(label[seedI]===keep&&lum(sq)>90){ const st=[seedI]; head[seedI]=1;
+      while(st.length){ const j=st.pop(); hn++; const px=j%W, py=(j-px)/W;
+        for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const xx=px+dx,yy=py+dy; if(xx<0||yy<0||xx>=W||yy>=H) continue; const k=yy*W+xx, q=4*k;
+          if(!head[k]&&label[k]===keep&&Math.hypot(d[q]-seed[0],d[q+1]-seed[1],d[q+2]-seed[2])<48){ head[k]=1; st.push(k); } } } }
+    const r=Math.max(3,Math.round(ed*.1));
+    const inKeep=(px,py)=>{
+      if(py<cy-.1*ed&&py>cy-2.8*ed&&Math.abs(px-cx)<2.3*ed) return true;          // above the eyes: ears, bow, hat
+      if(Math.abs(py-cy)<.7*ed&&Math.abs(px-cx)<2.6*ed) return true;              // eye level: whiskers
+      for(let dy=-r;dy<=r;dy+=2) for(let dx=-r;dx<=r;dx+=2){ const xx=px+dx,yy=py+dy; if(xx>=0&&yy>=0&&xx<W&&yy<H&&head[yy*W+xx]) return true; }
+      return false; };
+    const useFlood=hn>sizes[keep]*.08;
+    let x0=W,y0=H,x1=0,y1=0;
+    for(let i=0;i<W*H;i++){ if(!d[4*i+3]) continue; const px=i%W, py=(i-px)/W;
+      const ok=useFlood?inKeep(px,py):(((px-cx)/(2.1*ed))**2+((py-cy-.3*ed)/(py<cy?2.5*ed:1.7*ed))**2<=1);
+      if(!ok){ d[4*i+3]=0; continue; } if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py; }
+    x.putImageData(id,0,0);
+    box={x:x0,y:y0,w:x1-x0+1,h:y1-y0+1};
+  }
   return {canvas:photo,box,eyes};
 }
 // Place a fitted artwork on a face: the transform from artwork pixels to face space, given the eye
