@@ -33,12 +33,14 @@ Netlify drop works too. Any static host over HTTPS is fine.
 - **Layout:** the camera is the page. `.stage` is fixed full screen, the canvas is `object-fit: cover`, and the title, hint, shutter, actions and mask tray float over it in `.dock`. Uploaded photos switch to `object-fit: contain` so nothing is cropped. Save crops the PNG to what was on screen (`visibleRect`).
 - **Camera:** asks for 1080x1920 in the screen's orientation. Some phones read width and height in sensor orientation and hand a portrait screen a landscape frame, so `startCamera` checks `videoWidth > videoHeight` and asks once more with the two swapped.
 - **Rendering:** one `<canvas id="out">`. Each frame draws the video, then `composite()` draws each face's mask. Front camera is mirrored with a canvas transform (`translate(W,0); scale(-1,1)`) so the saved image matches the preview. Back camera is not mirrored.
-- **Masks:** each entry in `MASKS` has up to two drawing functions, both taking `(ctx, g)` where `g = geom(landmarks, W, H)`.
+- **Masks:** each entry in `MASKS` has up to three drawing functions, all taking `(ctx, g)` where `g = geom(landmarks, W, H)`.
+  - `under(ctx, g)` paints anything behind the face mesh (the balaclava hood, the gaiter's neck), flat in screen space, before the texture. Draw it as a ring around the face, never over it, or it shows through the texture's holes.
   - `tex(ctx, g)` paints the part that sits on the face. It runs once per mask into a 1024 texture in the face's UV space (`g = geom(UVL, 1024, 1024)`), and every frame the mesh renderer warps that texture onto the 898 triangles of the live face mesh. So the fabric bulges over the nose, wraps the cheeks and moves with the mouth. This is how TikTok and Snapchat face masks work.
   - `over(ctx, g)` paints anything that leaves the face (ear loops, cat ears, the bandana tail) or is rigid and should not bend with skin (sunglasses). Drawn flat in screen space each frame.
   - `geom` gives `P(i)` for pixel coordinates of landmark `i`, face height `fh`, face width `fw`, unit vectors `up` and `rt`, `off(point, u, v)` to offset along the face axes as fractions of `fh`/`fw`, `lerp`, `dist`, `centroid`, `ring(ids, k)` to scale a landmark loop about its centroid, and `roll` (head tilt in radians). The same drawing code works in texture space and screen space because everything is relative to the face axes.
-  - `inset(g, ids, k)` pulls an outline loop inwards so a mask edge sits on skin rather than on the silhouette. `shadow` and `shade` add a drop shadow and a curvature gradient. All three are what stop a mask reading as a sticker.
-- **Mesh renderer (`mesh`):** a small WebGL program. Vertex positions are the 468 normalised landmarks, UVs and triangles come from `MESH`. The fragment shader samples the mask texture and re-lights it from a 32 px wide copy of the frame (`uLight`), relative to the mean brightness of the face box (`uMean`), so the mask sits in the same light as the face. The light map is deliberately tiny so lips and brows under the mask do not print through. Knobs: `relight` strength in `render()` (0.75), the clamp range in the shader (0.7 to 1.5), and the light map width (32). Where WebGL is missing, `composite()` draws `tex()` flat in screen space instead.
+  - `inset(g, ids, k)` pulls an outline loop inwards so a mask edge sits on skin rather than on the silhouette. `shadow` and `shade` add a drop shadow and a curvature gradient. All three are what stop a mask reading as a sticker. `shade` takes a fill rule as its last argument. Pass `'evenodd'` for any path with holes or the multiply gradient paints into the holes.
+  - `coverPath(ctx, g, {edge, eyes, lips, nostrils})` builds a full-face cover with holes, for the skin-care masks, skull, clown and the like. Fill it with `'evenodd'`. `ribbing` draws knit lines, `rng(seed)` is a deterministic random for freckles, camo and beard hairs.
+- **Mesh renderer (`mesh`):** a small WebGL program. Textures are 256 px for the tray thumbnails (all cached) and 1024 px for the mask in use (only the current one is kept), so twenty-eight masks do not mean twenty-eight 4 MB canvases on a phone. `mesh.invalidate(m)` drops a mask's textures after its drawing changes. Vertex positions are the 468 normalised landmarks, UVs and triangles come from `MESH`. The fragment shader samples the mask texture and re-lights it from a 32 px wide copy of the frame (`uLight`), relative to the mean brightness of the face box (`uMean`), so the mask sits in the same light as the face. The light map is deliberately tiny so lips and brows under the mask do not print through. Knobs: `relight` strength in `render()` (0.75), the clamp range in the shader (0.7 to 1.5), and the light map width (32). Where WebGL is missing, `composite()` draws `tex()` flat in screen space instead.
 - **Face mesh data (`MESH`):** the MediaPipe canonical face model, packed as base64 Uint16 in the page: `xy` (the canonical face in a 3:4 frame), `uv` (texture coordinates, v flipped so y runs down like an image) and `tri` (898 triangles). About 12 KB. Rebuild from `canonical_face_model.obj` in the MediaPipe repo if it ever needs to change. Per-vertex UVs come from the `f v/vt` records, not from vt order.
 - **Reference face:** `REF` is the canonical face with the ten iris points synthesised. `refFace(ctx, g)` draws a plain face from it. Used for the tray thumbnails and by `tools/preview.mjs`.
 - **Capture and save:** shutter freezes the loop (canvas keeps the last frame). Save uses `navigator.share` with a PNG file where supported (iOS share sheet), else a download link. Back to camera resumes the loop.
@@ -63,7 +65,25 @@ Netlify drop works too. Any static host over HTTPS is fine.
 | Mesh edge at the temples | 162 / 389, just above 127 / 356 |
 | Face outline | `FACE_OVAL` array, reference face only |
 
-Masks: None, Surgical, Hero (eye mask), Masquerade, Cat, Shades, Bandana. All original designs, no branded or copyrighted characters. Keep it that way.
+Masks, in tray order:
+
+- Originals: Surgical, Hero, Masquerade, Cat, Shades, Bandana.
+- Full covers: Balaclava, Gaiter, Clay mask, Sheet mask, Charcoal, Gold mask, Mud mask (with cucumber slices), Skull, Clown.
+- Face paint: Vampire, Camo, Warpaint, Freckles, Gems.
+- Hair: Beard, Moustache.
+- Off the face: Eye patch, Bear ears, Bunny ears, Antennae.
+- Custom, see below.
+
+All original designs, no branded or copyrighted characters. Keep it that way.
+
+## Custom mask
+
+The last chip opens a sheet where the person picks a picture (file, or a link the site allows cross-origin) and gets a mask built from it. It is deliberately a cousin of the picture, not a copy: nothing from the image is painted onto the face.
+
+- `analyse(img, detect)` runs face detection on the picture. If a face is found it tests eight landmarks in each of six regions (forehead, eyes, nose, cheeks, mouth, chin) against a YCbCr skin box. Regions where at least half the points are not skin count as covered, and the pattern of covered regions picks the shape: full face (with a mouth hole if the mouth is uncovered), lower face, or eyes. Colours come from the non-skin pixels at the remaining landmarks, skipping eyes, brows and lips, quantised and then merged so shades of one colour count as one colour. One dominant colour means plain, otherwise dots or blobs. With no face it takes the colours of the whole picture and defaults to a full cover.
+- `drawSpec(ctx, g, spec)` is the parametric mask: `{cover, mouth, pattern, colors[3]}`. Shape, pattern and the three colours are editable in the sheet. The spec is saved in `localStorage` under `maskup.custom`.
+- Known limits: olive and tan sit inside the skin box, so camouflage reads as partly skin. Pasted links only work when the host sends CORS headers, which most image hosts do not. The message tells the person to save the image and choose it instead.
+- `window.__lastAnalysis` holds the last result, for tests.
 
 ## Checking mask geometry
 
@@ -74,7 +94,9 @@ npm run preview     # writes tools/preview/<mask id>.png
 
 The tool lifts the drawing code straight out of `index.html`, including the mesh renderer, so the previews can never drift from the app. Run it after touching any `tex()` or `over()` and look at the PNGs. It draws a frontal face only, so it will not catch problems that appear at extreme head angles. Headless Chromium needs the SwiftShader flags the tool passes for WebGL.
 
-Anything drawn in `tex()` is cut off at the mesh boundary, which is the face outline. If a shape needs to leave the face, it belongs in `over()`.
+Anything drawn in `tex()` is cut off at the mesh boundary, which is the face outline. If a shape needs to leave the face, it belongs in `over()` (in front) or `under()` (behind).
+
+To place something new, render a landmark map: draw `refFace` large and label `g.P(i)` for the indices you care about. The lower-face indices used by the beard came from one of those.
 
 ## Design tokens
 

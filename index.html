@@ -50,6 +50,24 @@
   .mask canvas{width:62px;height:62px;border-radius:50%;background:#EADFD2;border:3px solid transparent;transition:transform .15s}
   .mask.on canvas{border-color:var(--accent);transform:scale(1.1)}
   .mask.on{color:var(--ink);font-weight:600}
+  .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;z-index:3}
+  .sheet[hidden],.result[hidden]{display:none}
+  .panel{width:100%;max-width:480px;background:var(--bg);border-radius:22px 22px 0 0;padding:20px 20px calc(env(safe-area-inset-bottom) + 20px);display:flex;flex-direction:column;gap:12px;max-height:88vh;overflow:auto}
+  h2{margin:0;font-size:22px;letter-spacing:-.02em}
+  .row2{display:flex;gap:10px}
+  .row2 .btn{flex:1;justify-content:center}
+  .field{flex:1;min-width:0;font:inherit;padding:12px 14px;border-radius:12px;border:0;background:var(--chip);color:var(--ink)}
+  .field::placeholder{color:var(--muted)}
+  .result{display:flex;gap:16px;align-items:center}
+  #customPreview{width:96px;height:96px;border-radius:50%;background:#EADFD2;flex:0 0 auto}
+  .opts{display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--muted);flex:1}
+  .opts label{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  select{font:inherit;font-size:13px;padding:6px 10px;border-radius:8px;border:0;background:var(--chip);color:var(--ink)}
+  .swatches{display:flex;gap:8px;justify-content:flex-end}
+  .swatches input{width:34px;height:34px;border:0;border-radius:50%;padding:0;background:none;cursor:pointer}
+  .swatches input::-webkit-color-swatch-wrapper{padding:0}
+  .swatches input::-webkit-color-swatch{border:2px solid rgba(255,255,255,.25);border-radius:50%}
+  .panel .msg{margin:0;max-width:none;text-align:left}
   .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 16px);transform:translateX(-50%);background:var(--ink);color:#1a1720;padding:10px 16px;border-radius:999px;font-size:14px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center;z-index:2}
   .toast.show{opacity:1}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -80,7 +98,34 @@
     <div class="masks" id="masks" role="listbox" aria-label="Masks"></div>
   </div>
 </div>
+<div class="sheet" id="sheet" hidden>
+  <div class="panel" role="dialog" aria-labelledby="sheetTitle">
+    <h2 id="sheetTitle">Make a mask like a picture</h2>
+    <p class="msg">Pick a photo of a mask you like. The app reads its colours and where it sits on the face, then builds its own version from those. A cousin, not a copy.</p>
+    <div class="row2">
+      <button class="btn primary" id="btnPick">Choose an image</button>
+    </div>
+    <div class="row2">
+      <input class="field" id="imgUrl" type="url" inputmode="url" placeholder="or paste an image link" autocomplete="off">
+      <button class="btn" id="btnFetch">Fetch</button>
+    </div>
+    <div class="result" id="result" hidden>
+      <canvas id="customPreview" width="124" height="124"></canvas>
+      <div class="opts">
+        <label>Shape <select id="optCover"><option value="full">Full face</option><option value="lower">Lower face</option><option value="eyes">Eyes</option></select></label>
+        <label>Pattern <select id="optPattern"><option value="plain">Plain</option><option value="dots">Dots</option><option value="stripes">Stripes</option><option value="blobs">Blobs</option><option value="knit">Knit</option></select></label>
+        <div class="swatches"><input type="color" id="col0" aria-label="Main colour"><input type="color" id="col1" aria-label="Pattern colour"><input type="color" id="col2" aria-label="Second pattern colour"></div>
+      </div>
+    </div>
+    <p class="msg" id="customMsg"></p>
+    <div class="row2">
+      <button class="btn" id="btnSheetClose">Cancel</button>
+      <button class="btn primary" id="btnUseCustom" disabled>Use this mask</button>
+    </div>
+  </div>
+</div>
 <input type="file" id="file" accept="image/*" hidden>
+<input type="file" id="fileCustom" accept="image/*" hidden>
 <div class="toast" id="toast"></div>
 
 <script type="module">
@@ -138,14 +183,33 @@ function inset(g,ids,k){ const c=g.centroid(ids); return ids.map(i=>g.lerp(g.P(i
 // shadow: run a draw call with a soft drop shadow, so the mask edge casts onto the face below it
 function shadow(c,g,fn,a=.4){ c.save(); c.shadowColor=`rgba(0,0,0,${a})`; c.shadowBlur=g.fw*.06; c.shadowOffsetY=g.fh*.015; fn(); c.restore(); }
 // shade: darken a shape towards its lower edge and towards both cheeks, so it curves with the face
-function shade(c,g,pathFn,top,bottom,k=.28){
+function shade(c,g,pathFn,top,bottom,k=.28,rule='nonzero'){
   const grey=t=>{ const v=Math.round(255*(1-k*t)); return `rgb(${v},${v},${v})`; };
-  c.save(); pathFn(); c.clip(); c.globalCompositeOperation='multiply';
+  c.save(); pathFn(); c.clip(rule); c.globalCompositeOperation='multiply';
   let gr=c.createLinearGradient(top.x,top.y,bottom.x,bottom.y); gr.addColorStop(0,grey(0)); gr.addColorStop(1,grey(1));
   c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4);
   const l=g.P(234), r=g.P(454);
   gr=c.createLinearGradient(l.x,l.y,r.x,r.y); gr.addColorStop(0,grey(.9)); gr.addColorStop(.3,grey(0)); gr.addColorStop(.7,grey(0)); gr.addColorStop(1,grey(.9));
   c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4);
+  c.restore();
+}
+
+// Full-face cover with holes: the whole mesh (inset by edge), minus eyes, lips and nostrils.
+// Fill with 'evenodd' afterwards. A negative edge overruns the mesh so no skin shows at the rim.
+function coverPath(c,g,o={}){
+  const {P,lerp,ring,fw}=g;
+  path(c,inset(g,FACE_OVAL,o.edge??.02));
+  if(o.eyes){ addPath(c,ring(EYE_R,o.eyes)); addPath(c,ring(EYE_L,o.eyes)); }
+  if(o.lips) addPath(c,ring(LIPS,o.lips));
+  if(o.nostrils) for(const i of [98,327]){ const p=lerp(P(2),P(i),.55); c.moveTo(p.x+fw*.018,p.y); c.arc(p.x,p.y,fw*.018,0,7); c.closePath(); }
+}
+// Deterministic random, so freckles and camo blobs land in the same place every time
+const rng=seed=>()=>(seed=(seed*1664525+1013904223)>>>0)/4294967296;
+// Fine knit ribbing across a region, in whatever space the caller is drawing in
+function ribbing(c,g,pathFn,alpha=.08){
+  c.save(); pathFn(); c.clip(); c.strokeStyle=`rgba(255,255,255,${alpha})`; c.lineWidth=g.fw*.005;
+  const top=g.off(g.P(10),.6,0);
+  for(let i=0;i<80;i++){ const a=g.off(top,-i*.025,-.9), b=g.off(top,-i*.025,.9); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
   c.restore();
 }
 
@@ -167,7 +231,9 @@ function eyeShape(g,lift,wing){
 }
 
 // ---------- Masks ----------
-// Two kinds of drawing per mask:
+// Three kinds of drawing per mask, all optional:
+//   under(c,g) paints anything that sits BEHIND the face mesh: a hood, a neck, a hairline.
+//             Drawn flat in screen space before the texture, so the face texture covers its inner edge.
 //   tex(c,g)  paints the part that sits ON the face. It is drawn once into the face's UV
 //             texture space, then warped onto all 898 mesh triangles every frame, so it
 //             bulges over the nose, wraps the cheeks and picks up the real light on the skin.
@@ -297,7 +363,333 @@ const MASKS=[
       for(let i=-7;i<=7;i++) for(let k=0;k<10;k++){ const p=off(t,-.08*k,.1*i+(k%2?.05:0)); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); }
       c.restore();
     }},
+
+  // ----- Full covers -----
+  {id:'balaclava',name:'Balaclava',
+    under(c,g){
+      const {off}=g;
+      const TOP=new Set([10,338,109,297,67,332,103,284,54,251,21,389,162,356,127]);
+      const hood=inset(g,FACE_OVAL,-.16).map((p,i)=>TOP.has(FACE_OVAL[i])?off(p,.14,0):p);
+      const ring=()=>{ path(c,hood); addPath(c,inset(g,FACE_OVAL,.03)); };
+      c.fillStyle='#141416'; shadow(c,g,()=>{ ring(); c.fill('evenodd'); },.5);
+      c.save(); ring(); c.clip('evenodd'); ribbing(c,g,()=>path(c,hood),.06); c.restore();
+    },
+    tex(c,g){
+      const {ring,fw}=g;
+      c.fillStyle='#141416'; coverPath(c,g,{edge:-.03,eyes:1.45,lips:1.25}); c.fill('evenodd');
+      ribbing(c,g,()=>coverPath(c,g,{edge:-.03,eyes:1.45,lips:1.25}),.07);
+      c.strokeStyle='#2C2C31'; c.lineWidth=fw*.012;
+      for(const E of [EYE_R,EYE_L]){ path(c,ring(E,1.45)); c.stroke(); } path(c,ring(LIPS,1.25)); c.stroke();
+    }},
+
+  {id:'gaiter',name:'Gaiter',
+    under(c,g){
+      const {P,off}=g;
+      const neck=[off(P(234),0,-.03),off(P(234),-.3,-.06),off(P(152),-.36,-.28),off(P(152),-.38,0),off(P(152),-.36,.28),off(P(454),-.3,.06),off(P(454),0,.03),...inset(g,JAW,.02).slice(1,-1)];
+      c.fillStyle='#1E1E23'; shadow(c,g,()=>{ path(c,neck); c.fill(); },.5);
+      shade(c,g,()=>path(c,neck),P(152),off(P(152),-.36,0),.35);
+      ribbing(c,g,()=>path(c,neck),.05);
+    },
+    tex(c,g){
+      const {P,off}=g;
+      const J=inset(g,JAW,-.03), lC=off(J[J.length-1],-.01,0), rC=off(J[0],-.01,0), t=off(P(197),.05,0);
+      const body=()=>{ c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); };
+      c.fillStyle='#1E1E23'; shadow(c,g,()=>{ body(); c.fill(); });
+      ribbing(c,g,body,.06);
+      shade(c,g,body,t,P(152),.2);
+    }},
+
+  {id:'clay',name:'Clay mask',
+    tex(c,g){
+      const {P,fw}=g, r=rng(7);
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.12,nostrils:true});
+      c.fillStyle='rgba(143,175,126,.96)'; cover(); c.fill('evenodd');
+      c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(55,75,45,.35)'; c.lineWidth=fw*.004; c.lineCap='round';
+      for(let i=0;i<70;i++){ const a=g.off(P(197),(r()-.5)*.9,(r()-.5)*.95), b=g.off(a,(r()-.5)*.06,(r()-.5)*.06); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.restore();
+      shade(c,g,cover,P(10),P(152),.12,'evenodd');
+    }},
+
+  {id:'sheet',name:'Sheet mask',
+    tex(c,g){
+      const {P,fw}=g, r=rng(3);
+      const cover=()=>coverPath(c,g,{edge:.04,eyes:1.5,lips:1.3,nostrils:true});
+      c.fillStyle='rgba(255,255,255,.82)'; cover(); c.fill('evenodd');
+      c.strokeStyle='rgba(255,255,255,.95)'; c.lineWidth=fw*.01; cover(); c.stroke();
+      c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(0,0,0,.07)'; c.lineWidth=fw*.005;
+      for(let i=0;i<14;i++){ const a=g.off(P(197),(r()-.5)*.9,(r()-.5)*.9), b=g.off(a,(r()-.5)*.25,(r()-.5)*.25); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.restore();
+    }},
+
+  {id:'charcoal',name:'Charcoal',
+    tex(c,g){
+      const {P,off,fw}=g;
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.12,nostrils:true});
+      c.fillStyle='rgba(40,40,46,.94)'; cover(); c.fill('evenodd');
+      c.save(); cover(); c.clip('evenodd');
+      for(const [p,rad] of [[off(P(10),-.12,0),fw*.28],[off(P(197),-.08,0),fw*.12],[off(P(50),0,0),fw*.14],[off(P(280),0,0),fw*.14]]){
+        const gr=c.createRadialGradient(p.x,p.y,0,p.x,p.y,rad); gr.addColorStop(0,'rgba(255,255,255,.22)'); gr.addColorStop(1,'rgba(255,255,255,0)');
+        c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4);
+      }
+      c.restore();
+    }},
+
+  {id:'gold',name:'Gold mask',
+    tex(c,g){
+      const {P,off,fw}=g;
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.1,nostrils:true});
+      c.fillStyle='#E4B44C'; cover(); c.fill('evenodd');
+      shade(c,g,cover,P(10),P(152),.32,'evenodd');
+      c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(255,246,200,.45)'; c.lineWidth=fw*.03; c.lineCap='round';
+      for(const k of [-.32,-.1,.14,.36]){ const a=off(P(197),.5,k-.25), b=off(P(197),-.55,k+.25); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.restore();
+      c.strokeStyle='rgba(120,80,20,.5)'; c.lineWidth=fw*.008; cover(); c.stroke();
+    }},
+
+  {id:'mud',name:'Mud mask',
+    tex(c,g){
+      const {P,dist,fw}=g;
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.6,lips:1.12,nostrils:true});
+      c.fillStyle='rgba(122,82,54,.96)'; cover(); c.fill('evenodd');
+      shade(c,g,cover,P(10),P(152),.18,'evenodd');
+      // cucumber slices over the eyes
+      const rad=dist(P(33),P(133))*.85;
+      for(const i of [468,473]){
+        const p=P(i);
+        c.fillStyle='#5E9C3A'; shadow(c,g,()=>{ c.beginPath(); c.arc(p.x,p.y,rad,0,7); c.fill(); },.35);
+        c.fillStyle='#CFE7A8'; c.beginPath(); c.arc(p.x,p.y,rad*.86,0,7); c.fill();
+        c.fillStyle='#A9CF78';
+        for(let k=0;k<8;k++){ const a=k/8*6.283; c.beginPath(); c.ellipse(p.x+Math.cos(a)*rad*.4,p.y+Math.sin(a)*rad*.4,rad*.16,rad*.08,a,0,7); c.fill(); }
+        c.fillStyle='#E7F3CF'; c.beginPath(); c.arc(p.x,p.y,rad*.12,0,7); c.fill();
+      }
+    }},
+
+  {id:'skull',name:'Skull',
+    tex(c,g){
+      const {P,off,lerp,ring,fw,fh}=g;
+      const cover=()=>coverPath(c,g,{edge:.02});
+      c.fillStyle='rgba(242,240,234,.96)'; cover(); c.fill('evenodd');
+      shade(c,g,cover,P(10),P(152),.22,'evenodd');
+      c.fillStyle='#111';
+      for(const E of [EYE_R,EYE_L]){ path(c,ring(E,2.2)); c.fill(); }
+      path(c,[off(P(6),-.02,0),off(P(98),-.01,-.02),off(P(2),-.02,0),off(P(327),-.01,.02)]); c.fill();
+      path(c,ring(LIPS,1.45)); c.fill();
+      c.fillStyle='#EDEAE2';
+      for(let k=0;k<9;k++){ const p=lerp(P(61),P(291),(k+.5)/9); c.save(); c.translate(p.x,p.y); c.rotate(g.roll); c.beginPath(); c.roundRect(-fw*.014,-fh*.028,fw*.028,fh*.056,fw*.006); c.fill(); c.restore(); }
+      c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=fw*.006; c.lineCap='round';
+      for(const [a,b] of [[[50,.04,-.02],[50,-.04,.03]],[[280,.04,.02],[280,-.04,-.03]],[[10,-.02,0],[10,-.1,.06]]]){
+        const p=off(P(a[0]),a[1],a[2]), q=off(P(b[0]),b[1],b[2]); c.beginPath(); c.moveTo(p.x,p.y); c.lineTo(q.x,q.y); c.stroke(); }
+    }},
+
+  {id:'clown',name:'Clown',
+    tex(c,g){
+      const {P,off,dist,ring,centroid,fw}=g;
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.5});
+      c.fillStyle='rgba(250,248,245,.92)'; cover(); c.fill('evenodd');
+      c.fillStyle='#E0262E'; path(c,ring(LIPS,1.9)); c.fill();
+      c.fillStyle='#1A8FD6';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E); for(const s of [1,-1]){ const b=off(e,s*.06,0); path(c,[off(b,0,-.035),off(b,s*.06,0),off(b,0,.035)]); c.fill(); } }
+      const n=P(4), nr=dist(P(49),P(279))*.72;
+      c.fillStyle='#E0262E'; shadow(c,g,()=>{ c.beginPath(); c.arc(n.x,n.y,nr,0,7); c.fill(); });
+      c.fillStyle='rgba(255,255,255,.45)'; c.beginPath(); c.arc(n.x-nr*.3,n.y-nr*.3,nr*.3,0,7); c.fill();
+    }},
+
+  // ----- Face paint -----
+  {id:'vampire',name:'Vampire',
+    tex(c,g){
+      const {P,off,lerp,centroid,fw,fh}=g;
+      const cover=()=>coverPath(c,g,{edge:-.02});
+      c.fillStyle='rgba(232,238,245,.38)'; cover(); c.fill();
+      c.save(); cover(); c.clip(); c.globalCompositeOperation='multiply';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.04,e.x,e.y,fw*.16); gr.addColorStop(0,'rgb(120,100,130)'); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); }
+      c.restore();
+      c.fillStyle='#F7F7F2';
+      for(const i of [61,291]){ const t=lerp(P(0),P(i),.5); path(c,[off(t,0,-.02),off(t,0,.02),off(t,-.055,0)]); c.fill(); }
+      c.strokeStyle='#B3121B'; c.lineWidth=fw*.012; c.lineCap='round';
+      const m=P(291), d=off(m,-.06,.01); c.beginPath(); c.moveTo(m.x,m.y); c.lineTo(d.x,d.y); c.stroke();
+      c.fillStyle='#B3121B'; c.beginPath(); c.arc(d.x,d.y,fw*.011,0,7); c.fill();
+    }},
+
+  {id:'camo',name:'Camo',
+    tex(c,g){
+      const {P,fw}=g, r=rng(11);
+      const cover=()=>coverPath(c,g,{edge:0,eyes:1.3,lips:1.1});
+      c.save(); cover(); c.clip('evenodd');
+      c.fillStyle='rgba(96,112,64,.6)'; c.fillRect(-1e4,-1e4,2e4,2e4);
+      const cols=['rgba(58,72,40,.8)','rgba(112,108,70,.8)','rgba(40,40,34,.75)','rgba(140,122,86,.7)'];
+      for(let i=0;i<48;i++){ const p=g.off(P(197),(r()-.5)*1.1,(r()-.5)*1.05); c.fillStyle=cols[i%4];
+        c.beginPath(); c.ellipse(p.x,p.y,fw*(.05+r()*.09),fw*(.03+r()*.05),r()*3.14,0,7); c.fill(); }
+      c.restore();
+    }},
+
+  {id:'warpaint',name:'Warpaint',
+    tex(c,g){
+      const {P,off,fw}=g;
+      c.lineWidth=fw*.032; c.lineCap='butt';
+      for(const [i,s] of [[118,-1],[347,1]]) for(const [col,k] of [['#D8262C',0],['#F4F1E8',.055],['#1E3A8A',.11]]){
+        const a=off(P(i),-.03,s*k), b=off(a,-.15,s*.11); c.strokeStyle=col; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+    }},
+
+  {id:'freckles',name:'Freckles',
+    tex(c,g){
+      const {P,fw}=g, r=rng(5);
+      c.save(); coverPath(c,g,{edge:0,eyes:1.4,lips:1.1}); c.clip('evenodd'); c.fillStyle='rgba(110,60,35,.42)';
+      for(let i=0;i<80;i++){ const v=(r()-.5)*.95, u=-.02-r()*.24+(1-Math.abs(v)*1.2)*.08; const p=g.off(P(197),u,v);
+        c.beginPath(); c.arc(p.x,p.y,fw*(.003+r()*.006),0,7); c.fill(); }
+      c.restore();
+    }},
+
+  {id:'gems',name:'Gems',
+    tex(c,g){
+      const {P,off,fw}=g;
+      const cols=['#FF6B8B','#5EE1FF','#FFD166','#C084FC','#FF6B8B','#5EE1FF','#FFD166'];
+      const spots=[[116,-.03,0],[117,-.035,0],[118,-.03,0],[345,-.03,0],[346,-.035,0],[347,-.03,0],[70,.04,0],[300,.04,0],[9,.04,0],[105,.045,0],[334,.045,0]];
+      spots.forEach(([i,u,v],k)=>{ const p=off(P(i),u,v), rad=fw*(k===8?.02:.014);
+        c.fillStyle=cols[k%7]; shadow(c,g,()=>{ c.beginPath(); c.arc(p.x,p.y,rad,0,7); c.fill(); },.3);
+        c.fillStyle='rgba(255,255,255,.85)'; c.beginPath(); c.arc(p.x-rad*.3,p.y-rad*.3,rad*.3,0,7); c.fill(); });
+    }},
+
+  // ----- Hair -----
+  {id:'beard',name:'Beard',
+    tex(c,g){
+      const {P,off,fw}=g, r=rng(9);
+      const J=inset(g,JAW,.03);
+      // lower edge: the jaw from 323 round the chin to 93. upper edge: sideburn, cheek, under the lip, back up
+      const upper=[137,177,215,212,214,57,43,106,182,83,18,313,406,335,273,287,434,432,435,401,366].map(i=>P(i));
+      const tache=[98,97,2,326,327,291,409,270,269,267,0,37,39,40,185,61].map(i=>[98,97,2,326,327].includes(i)?P(i):off(P(i),.012,0));
+      const hair=()=>{ c.beginPath(); addPath(c,[...J.slice(1,20),...upper]); addPath(c,tache); };
+      c.fillStyle='rgba(58,38,28,.85)'; shadow(c,g,()=>{ hair(); c.fill(); },.25);
+      c.save(); hair(); c.clip(); c.lineCap='round'; c.lineWidth=fw*.005;
+      for(let i=0;i<1200;i++){ const a=off(P(152),.02+r()*.62,(r()-.5)*1.15), b=off(a,-.02-r()*.03,(r()-.5)*.02);
+        c.strokeStyle=['rgba(30,18,12,.7)','rgba(90,62,44,.6)','rgba(120,90,66,.35)'][i%3]; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.restore();
+    }},
+
+  {id:'moustache',name:'Moustache',
+    tex(c,g){
+      const {P,off,lerp,fw}=g;
+      const m=lerp(P(2),P(0),.55);
+      c.strokeStyle='#2E1F17'; c.lineCap='round';
+      for(const [i,s] of [[61,-1],[291,1]]){
+        const tip=off(P(i),.05,s*.09), ctl=off(P(i),-.01,s*.01);
+        c.lineWidth=fw*.045; c.beginPath(); c.moveTo(m.x,m.y); c.quadraticCurveTo(ctl.x,ctl.y,lerp(ctl,tip,.55).x,lerp(ctl,tip,.55).y); c.stroke();
+        c.lineWidth=fw*.022; c.beginPath(); c.moveTo(lerp(ctl,tip,.4).x,lerp(ctl,tip,.4).y); c.quadraticCurveTo(off(tip,-.03,0).x,off(tip,-.03,0).y,tip.x,tip.y); c.stroke();
+      }
+    }},
+
+  // ----- Headwear, all off the mesh -----
+  {id:'eyepatch',name:'Eye patch',
+    tex(c,g){
+      const {P,off,ring,centroid,fw}=g;
+      const e=centroid(EYE_L);
+      c.strokeStyle='#141416'; c.lineWidth=fw*.025; c.lineCap='round';
+      const a=off(e,.09,0), b=off(P(127),.09,0), d=off(P(356),.01,0);
+      c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.moveTo(a.x,a.y); c.lineTo(d.x,d.y); c.stroke();
+      c.fillStyle='#141416'; shadow(c,g,()=>{ path(c,ring(EYE_L,2.4)); c.fill(); });
+    }},
+
+  {id:'bear',name:'Bear ears',
+    over(c,g){
+      const {P,off,fw}=g;
+      const ears=[[103,-1],[332,1]].map(([i,s])=>off(P(i),.14,s*.07));
+      c.strokeStyle='#F2A5C0'; c.lineWidth=fw*.035; c.lineCap='round';
+      const top=off(P(10),.09,0); c.beginPath(); c.moveTo(ears[0].x,ears[0].y); c.quadraticCurveTo(top.x,top.y,ears[1].x,ears[1].y); c.stroke();
+      for(const e of ears){ c.fillStyle='#F2A5C0'; shadow(c,g,()=>{ c.beginPath(); c.arc(e.x,e.y,fw*.13,0,7); c.fill(); },.3);
+        c.fillStyle='#F9D3E0'; c.beginPath(); c.arc(e.x,e.y,fw*.08,0,7); c.fill(); }
+    }},
+
+  {id:'bunny',name:'Bunny ears',
+    over(c,g){
+      const {P,off,fw}=g;
+      for(const [i,s] of [[103,-1],[332,1]]){
+        const base=off(P(i),.03,s*.02), tip=off(base,.52,s*.1), mid={x:(base.x+tip.x)/2,y:(base.y+tip.y)/2};
+        const ang=Math.atan2(tip.y-base.y,tip.x-base.x), len=Math.hypot(tip.x-base.x,tip.y-base.y);
+        c.save(); c.translate(mid.x,mid.y); c.rotate(ang);
+        c.fillStyle='#F3F0EA'; shadow(c,g,()=>{ c.beginPath(); c.ellipse(0,0,len/2,fw*.065,0,0,7); c.fill(); },.3);
+        c.fillStyle='#F5B7CB'; c.beginPath(); c.ellipse(0,0,len*.4,fw*.035,0,0,7); c.fill();
+        c.restore();
+      }
+    }},
+
+  {id:'antennae',name:'Antennae',
+    over(c,g){
+      const {P,off,fw}=g;
+      for(const [i,s] of [[103,-1],[332,1]]){
+        const base=off(P(i),.02,s*.02), tip=off(base,.42,s*.14), ctl=off(base,.25,s*.02);
+        c.lineCap='round';
+        for(const [col,w] of [['rgba(255,255,255,.55)',fw*.02],['#26262B',fw*.012]]){ c.strokeStyle=col; c.lineWidth=w; c.beginPath(); c.moveTo(base.x,base.y); c.quadraticCurveTo(ctl.x,ctl.y,tip.x,tip.y); c.stroke(); }
+        c.fillStyle='#E0262E'; shadow(c,g,()=>{ c.beginPath(); c.arc(tip.x,tip.y,fw*.04,0,7); c.fill(); },.3);
+        c.fillStyle='rgba(255,255,255,.45)'; c.beginPath(); c.arc(tip.x-fw*.013,tip.y-fw*.013,fw*.013,0,7); c.fill();
+      }
+    }},
 ];
+
+// ---------- Custom mask ----------
+// Built from a spec rather than drawn by hand: a shape, up to three colours and a pattern.
+// The spec comes from analysing a picture the person chose (see analyse() below), or their edits.
+const DEFAULT_SPEC={cover:'lower',pattern:'plain',colors:['#7CC1DE','#F6F2EA','#3A3545'],mouth:true};
+let spec=null; try{ spec=JSON.parse(localStorage.getItem('maskup.custom')); }catch{}
+function drawSpec(c,g,sp){
+  const {P,off,fw}=g, r=rng(21);
+  let region;
+  if(sp.cover==='full') region=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:sp.mouth?1.12:0,nostrils:true});
+  else if(sp.cover==='eyes') region=()=>{ path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); };
+  else { const J=inset(g,JAW,.07), lC=off(J[J.length-1],-.05,0), rC=off(J[0],-.05,0), t=off(P(197),.02,0);
+    region=()=>{ c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); }; }
+  const [c0,c1,c2]=sp.colors;
+  c.fillStyle=c0; shadow(c,g,()=>{ region(); c.fill('evenodd'); });
+  c.save(); region(); c.clip('evenodd');
+  if(sp.pattern==='dots'){ c.fillStyle=c1; for(let i=-9;i<=9;i++) for(let k=-9;k<=9;k++){ const p=off(P(197),k*.07,i*.09+(k%2?.045:0)); c.beginPath(); c.arc(p.x,p.y,fw*.014,0,7); c.fill(); } }
+  else if(sp.pattern==='stripes'){ c.strokeStyle=c1; c.lineWidth=fw*.035; for(let k=-10;k<=10;k++){ const a=off(P(197),.8,k*.11-.5), b=off(P(197),-.9,k*.11+.5); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); } }
+  else if(sp.pattern==='blobs'){ for(let i=0;i<44;i++){ const p=off(P(197),(r()-.5)*1.3,(r()-.5)*1.1); c.fillStyle=i%2?c1:c2; c.beginPath(); c.ellipse(p.x,p.y,fw*(.05+r()*.09),fw*(.03+r()*.05),r()*3.14,0,7); c.fill(); } }
+  else if(sp.pattern==='knit'){ ribbing(c,g,region,.12); }
+  c.restore();
+  shade(c,g,region,P(10),P(152),.22,'evenodd');
+}
+MASKS.push({id:'custom',name:'Custom',tex(c,g){ drawSpec(c,g,spec||DEFAULT_SPEC); }});
+
+// Read a picture: is there a face, which parts of it are covered by something that is not skin,
+// and what colours is that something. Returns a spec plus what it found.
+// Skin test is the usual YCbCr box, which is broad enough to hold across skin tones.
+async function analyse(img,detect){
+  const W=img.width,H=img.height, cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const x=cv.getContext('2d',{willReadFrequently:true}); x.drawImage(img,0,0);
+  const px=x.getImageData(0,0,W,H).data;
+  const at=(u,v)=>{ const i=4*(Math.min(H-1,Math.max(0,Math.round(v*H)))*W+Math.min(W-1,Math.max(0,Math.round(u*W)))); return [px[i],px[i+1],px[i+2]]; };
+  const skin=([r,g,b])=>{ const cb=128-.169*r-.331*g+.5*b, cr=128+.5*r-.419*g-.081*b; return cb>77&&cb<127&&cr>133&&cr<173; };
+  let L=null; try{ L=await detect(cv); }catch{}
+  const samples=[]; let cover='full', mouth=true;
+  const REG={forehead:[10,109,338,67,297,151,108,337],eyes:[105,334,117,346,66,296,229,449],nose:[4,195,197,5],cheeks:[50,280,205,425,187,411,101,330],mouth:[0,17,61,291,37,267,84,314],chin:[152,175,199,200,208,428]};
+  if(L){
+    const covered={};
+    for(const [k,ids] of Object.entries(REG)) covered[k]=ids.filter(i=>!skin(at(L[i].x,L[i].y))).length/ids.length>=.5;
+    const {forehead,eyes,cheeks,mouth:m,chin}=covered;
+    if(forehead&&cheeks&&chin){ cover='full'; mouth=!m; }
+    else if(eyes&&!cheeks&&!chin) cover='eyes';
+    else if(cheeks||chin||m) cover='lower';
+    // colours come from the face only, skipping eyes, brows and lips, which are never mask
+    const skip=new Set([...EYE_R,...EYE_L,...BROW_R,...BROW_L,...LIPS,468,469,470,471,472,473,474,475,476,477]);
+    L.forEach((p,i)=>{ if(skip.has(i)) return; const c=at(p.x,p.y); if(!skin(c)) samples.push(c); });
+  } else {
+    for(let j=0;j<48;j++) for(let i=0;i<48;i++) samples.push(at((i+.5)/48,(j+.5)/48));
+  }
+  const maskFound=!L||samples.length>=24;
+  const bins=new Map();
+  for(const [r,g,b] of samples){ const k=((r>>4)<<8)|((g>>4)<<4)|(b>>4); const e=bins.get(k)||{n:0,r:0,g:0,b:0}; e.n++; e.r+=r; e.g+=g; e.b+=b; bins.set(k,e); }
+  const ranked=[...bins.values()].sort((a,b)=>b.n-a.n);
+  const lum=c=>(c[0]+c[1]+c[2])/3, chroma=c=>{ const l=lum(c)||1; return c.map(v=>v/l*128); };
+  const distinct=(a,b)=>Math.hypot(...chroma(a).map((v,i)=>v-chroma(b)[i]))>40 || Math.abs(lum(a)-lum(b))>110;
+  const colors=[], counts=[];
+  for(const e of ranked){ const c=[e.r/e.n,e.g/e.n,e.b/e.n]; const k=colors.findIndex(d=>!distinct(c,d));
+    if(k<0){ if(colors.length<3){ colors.push(c); counts.push(e.n); } } else counts[k]+=e.n; }
+  if(!colors.length) colors.push([124,193,222]);
+  while(colors.length<3) colors.push(colors[colors.length-1].map(v=>Math.min(255,v*.7+70)));
+  const top=samples.length?counts[0]/samples.length:1, second=samples.length?(counts[1]||0)/samples.length:0;
+  const pattern=top>.8||second<.08?'plain':(second<.3?'dots':'blobs');
+  const debug={covered:L?Object.fromEntries(Object.entries(REG).map(([k,ids])=>[k,ids.filter(i=>!skin(at(L[i].x,L[i].y))).length])):null,samples:samples.length,top,second};
+  const hex=c=>'#'+c.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+  return {spec:{cover,mouth,pattern,colors:colors.map(hex)},faceFound:!!L,maskFound,debug};
+}
 
 // ---------- Mesh renderer ----------
 // Paints a mask's tex() into a 1024 texture once, then every frame warps that texture onto
@@ -336,18 +728,24 @@ const mesh=(()=>{
   // lips and brows under the mask do not print through as dark patches. Only the broad
   // light on the face survives, which is exactly the part worth copying onto the mask.
   const light=document.createElement('canvas'), lctx=light.getContext('2d',{willReadFrequently:true});
-  const textures=new Map();
-  function maskTexture(m){
-    if(!textures.has(m)){ const t=document.createElement('canvas'); t.width=t.height=1024; m.tex(t.getContext('2d'),geom(UVL,1024,1024)); textures.set(m,t); }
-    return textures.get(m);
+  // Thumbnails share small textures. Only the mask in use gets a full-size one, so
+  // thirty masks do not mean thirty 4 MB canvases held in memory on a phone.
+  const small=new Map(); let big=null;
+  function maskTexture(m,size){
+    const make=()=>{ const t=document.createElement('canvas'); t.width=t.height=size; m.tex(t.getContext('2d'),geom(UVL,size,size)); return t; };
+    if(size<=256){ if(!small.has(m)) small.set(m,make()); return small.get(m); }
+    if(!big||big.m!==m) big={m,t:make()};
+    return big.t;
   }
   let bound=null;
   return {
     canvas:cv,
+    invalidate(m){ small.delete(m); if(big&&big.m===m) big=null; bound=null; },
     render(faces,W,H,m,src,relight=.75){
       if(cv.width!==W||cv.height!==H){ cv.width=W; cv.height=H; }
       gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
-      if(bound!==m){ gl.activeTexture(gl.TEXTURE0); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,maskTexture(m)); bound=m; }
+      const size=W<=256?256:1024, key=m.id+size;
+      if(bound!==key){ gl.activeTexture(gl.TEXTURE0); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,maskTexture(m,size)); bound=key; }
       light.width=32; light.height=Math.max(1,Math.round(32*H/W)); lctx.drawImage(src,0,0,light.width,light.height);
       gl.activeTexture(gl.TEXTURE1); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,light);
       const px=lctx.getImageData(0,0,light.width,light.height).data;
@@ -370,6 +768,7 @@ const mesh=(()=>{
 // Draw mask m for every face onto c. src is whatever frame c already shows (video, photo, reference face).
 function composite(c,faces,W,H,m,src){
   if(!faces.length) return;
+  if(m.under) for(const L of faces) m.under(c,geom(L,W,H));
   if(m.tex){
     if(mesh){ mesh.render(faces,W,H,m,src); c.drawImage(mesh.canvas,0,0); }
     else for(const L of faces) m.tex(c,geom(L,W,H));
@@ -493,21 +892,71 @@ $('file').onchange=async e=>{
 
 // ---------- Mask picker ----------
 function selectMask(m){ current=m; [...$('masks').children].forEach(b=>{ const on=b.dataset.id===m.id; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); }); if(!running&&result) draw(); }
-function thumb(m){
+function thumb(m,t=document.createElement('canvas')){
   const VH=126, VW=Math.round(VH*.75);
   const base=document.createElement('canvas'); base.width=VW; base.height=VH;
   refFace(base.getContext('2d'),geom(REF,VW,VH));
-  const t=document.createElement('canvas'); t.width=t.height=124; const c=t.getContext('2d');
-  c.translate(62-.5*VW,68-.5*VH);           // centre the face, leave headroom for ears
-  c.drawImage(base,0,0); composite(c,[REF],VW,VH,m,base);
+  t.width=t.height=124; const c=t.getContext('2d');
+  c.save(); c.translate(62-.5*VW,68-.5*VH);           // centre the face, leave headroom for ears
+  c.drawImage(base,0,0); composite(c,[REF],VW,VH,m,base); c.restore();
+  if(m.id==='custom'){ c.fillStyle='#FF6B8B'; c.beginPath(); c.arc(98,98,20,0,7); c.fill(); c.fillStyle='#2A0A12'; c.fillRect(88,95,20,6); c.fillRect(95,88,6,20); }
   return t;
 }
+const chips={};
 for(const m of MASKS){
   const b=document.createElement('button'); b.className='mask'; b.dataset.id=m.id; b.setAttribute('role','option');
   b.append(thumb(m),Object.assign(document.createElement('span'),{textContent:m.name}));
-  b.onclick=()=>selectMask(m); $('masks').append(b);
+  b.onclick=()=>m.id==='custom'?openSheet():selectMask(m); $('masks').append(b); chips[m.id]=b;
 }
 selectMask(current);
+
+// ---------- Custom mask sheet ----------
+const CUSTOM=MASKS.find(m=>m.id==='custom');
+let draft=null, wasRunning=false;
+function openSheet(){
+  wasRunning=running; running=false;                 // detection runs in IMAGE mode while the sheet is open
+  draft=spec?{...spec,colors:[...spec.colors]}:null;
+  $('result').hidden=!draft; $('btnUseCustom').disabled=!draft; $('customMsg').textContent=draft?'Your current custom mask. Change it, or pick a new picture.':'';
+  $('imgUrl').value=''; if(draft) showDraft(); $('sheet').hidden=false;
+}
+async function closeSheet(){
+  $('sheet').hidden=true;
+  if(wasRunning&&stream){ if(landmarker&&landmarker.runningMode!=='VIDEO') await landmarker.setOptions({runningMode:'VIDEO'}); running=true; lastT=-1; prev=null; loop(); }
+}
+function showDraft(){
+  $('optCover').value=draft.cover; $('optPattern').value=draft.pattern;
+  draft.colors.forEach((c,i)=>$('col'+i).value=c);
+  const was=spec; spec=draft; mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,$('customPreview')); spec=was; mesh&&mesh.invalidate(CUSTOM);
+}
+async function fromImage(bitmap){
+  const r=Math.min(1,512/Math.max(bitmap.width,bitmap.height));
+  const cv=document.createElement('canvas'); cv.width=Math.round(bitmap.width*r); cv.height=Math.round(bitmap.height*r); cv.getContext('2d').drawImage(bitmap,0,0,cv.width,cv.height);
+  $('customMsg').textContent='Reading the picture…';
+  const detect=async c=>{ if(!landmarker) return null; if(landmarker.runningMode!=='IMAGE') await landmarker.setOptions({runningMode:'IMAGE'}); return landmarker.detect(c).faceLandmarks[0]||null; };
+  const a=await analyse(cv,detect); window.__lastAnalysis=a;
+  draft=a.spec; $('result').hidden=false; $('btnUseCustom').disabled=false; showDraft();
+  $('customMsg').textContent=!a.faceFound?'No face in that picture, so this uses its colours on a mask shape. Change the shape if you like.'
+    :!a.maskFound?'Found a face but nothing covering it. Took the colours anyway. Pick a shape.'
+    :'Built from the picture. Adjust anything, then use it.';
+}
+async function loadFile(f){ try{ return await createImageBitmap(f,{imageOrientation:'from-image'}); }catch{ return createImageBitmap(f); } }
+$('btnPick').onclick=()=>$('fileCustom').click();
+$('fileCustom').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; try{ await fromImage(await loadFile(f)); }catch{ $('customMsg').textContent='Could not read that file. Try a JPG or PNG.'; } };
+$('btnFetch').onclick=async()=>{
+  const url=$('imgUrl').value.trim(); if(!url) return;
+  $('customMsg').textContent='Fetching…';
+  try{ const res=await fetch(url,{mode:'cors'}); if(!res.ok) throw 0; await fromImage(await loadFile(await res.blob())); }
+  catch{ $('customMsg').textContent='That site will not let this page read the image. Save it to your photos and choose it instead.'; }
+};
+for(const id of ['optCover','optPattern','col0','col1','col2']) $(id).oninput=()=>{ if(!draft) return;
+  draft.cover=$('optCover').value; draft.pattern=$('optPattern').value; draft.colors=[$('col0').value,$('col1').value,$('col2').value]; showDraft(); };
+$('btnSheetClose').onclick=closeSheet;
+$('sheet').onclick=e=>{ if(e.target===$('sheet')) closeSheet(); };
+$('btnUseCustom').onclick=async()=>{
+  spec=draft; try{ localStorage.setItem('maskup.custom',JSON.stringify(spec)); }catch{}
+  mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,chips.custom.querySelector('canvas'));
+  await closeSheet(); selectMask(CUSTOM);
+};
 
 // ---------- Save ----------
 // The live canvas is shown cropped to the screen (object-fit: cover). Save what the person saw, not the whole sensor frame.
