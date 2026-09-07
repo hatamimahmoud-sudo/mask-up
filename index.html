@@ -258,9 +258,13 @@ function shade(c,g,pathFn,top,bottom,k=.28,rule='nonzero'){
 // Full-face cover with holes: the whole mesh (inset by edge), minus eyes, lips and nostrils.
 // Fill with 'evenodd' afterwards. A negative edge overruns the mesh so no skin shows at the rim.
 function coverPath(c,g,o={}){
-  const {P,lerp,ring,fw}=g;
+  const {P,lerp,ring,fw,fh,off,centroid,dist}=g;
   path(c,inset(g,FACE_OVAL,o.edge??.02));
-  if(o.eyes){ addPath(c,ring(EYE_R,o.eyes)); addPath(c,ring(EYE_L,o.eyes)); }
+  if(o.eyes==='wide'){
+    // a socket-sized opening, brow to under-eye, the way a sheet mask is cut
+    for(const [E,a,b] of [[EYE_R,33,133],[EYE_L,362,263]]){ const e=off(centroid(E),.04,0), rx=dist(P(a),P(b))*1.15, ry=fh*.095;
+      c.moveTo(e.x+rx*Math.cos(g.roll),e.y+rx*Math.sin(g.roll)); c.ellipse(e.x,e.y,rx,ry,g.roll,0,7); c.closePath(); }
+  } else if(o.eyes){ addPath(c,ring(EYE_R,o.eyes)); addPath(c,ring(EYE_L,o.eyes)); }
   if(o.lips) addPath(c,ring(LIPS,o.lips));
   if(o.nostrils) for(const i of [98,327]){ const p=lerp(P(2),P(i),.55); c.moveTo(p.x+fw*.018,p.y); c.arc(p.x,p.y,fw*.018,0,7); c.closePath(); }
 }
@@ -464,7 +468,7 @@ const MASKS=[
   {id:'clay',name:'Clay',
     tex(c,g){
       const {P,fw}=g, r=rng(7);
-      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.12,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:'wide',lips:1.12,nostrils:true});
       c.fillStyle='rgba(143,175,126,.96)'; cover(); c.fill('evenodd');
       c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(55,75,45,.42)'; c.lineWidth=fw*.004; c.lineCap='round';
       for(let i=0;i<11;i++){ let a=g.off(P(197),-.15+(r()-.5)*.7,(r()-.5)*.9); c.beginPath(); c.moveTo(a.x,a.y);
@@ -476,7 +480,7 @@ const MASKS=[
   {id:'sheet',name:'Sheet',
     tex(c,g){
       const {P,fw}=g, r=rng(3);
-      const cover=()=>coverPath(c,g,{edge:.04,eyes:2,lips:1.3,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.04,eyes:'wide',lips:1.3,nostrils:true});
       c.fillStyle='rgba(255,255,255,.82)'; cover(); c.fill('evenodd');
       c.strokeStyle='rgba(255,255,255,.95)'; c.lineWidth=fw*.01; cover(); c.stroke();
       c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(0,0,0,.07)'; c.lineWidth=fw*.005;
@@ -487,7 +491,7 @@ const MASKS=[
   {id:'charcoal',name:'Charcoal',
     tex(c,g){
       const {P,off,fw}=g;
-      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.12,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:'wide',lips:1.12,nostrils:true});
       c.fillStyle='rgba(24,24,26,.94)'; cover(); c.fill('evenodd');
       c.save(); cover(); c.clip('evenodd');
       for(const [p,rad] of [[off(P(10),-.12,0),fw*.18],[off(P(197),-.08,0),fw*.09],[off(P(50),0,0),fw*.09],[off(P(280),0,0),fw*.09]]){
@@ -500,7 +504,7 @@ const MASKS=[
   {id:'gold',name:'Gold',
     tex(c,g){
       const {P,off,fw}=g;
-      const cover=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:1.1,nostrils:true});
+      const cover=()=>coverPath(c,g,{edge:.03,eyes:'wide',lips:1.1,nostrils:true});
       c.fillStyle='#E4B44C'; cover(); c.fill('evenodd');
       shade(c,g,cover,P(10),P(152),.32,'evenodd');
       c.save(); cover(); c.clip('evenodd'); c.strokeStyle='rgba(255,246,200,.28)'; c.lineWidth=fw*.05; c.lineCap='round';
@@ -534,7 +538,7 @@ const MASKS=[
       c.fillStyle='rgba(242,240,234,.96)'; cover(); c.fill('evenodd');
       shade(c,g,cover,P(10),P(152),.22,'evenodd');
       c.fillStyle='#111';
-      for(const E of [EYE_R,EYE_L]){ const e=g.centroid(E); c.beginPath(); c.ellipse(e.x,e.y,fw*.13,fw*.1,g.roll,0,7); c.fill(); }
+      c.fillStyle='rgba(17,17,17,.8)'; for(const E of [EYE_R,EYE_L]){ const e=g.centroid(E); c.beginPath(); c.ellipse(e.x,e.y,fw*.13,fw*.1,g.roll,0,7); c.fill(); } c.fillStyle='#111';
       path(c,[off(P(6),-.02,0),off(P(98),-.01,-.02),off(P(2),-.02,0),off(P(327),-.01,.02)]); c.fill();
       path(c,ring(LIPS,1.45)); c.fill();
       c.fillStyle='#EDEAE2';
@@ -561,10 +565,10 @@ const MASKS=[
   {id:'vampire',name:'Vampire',
     tex(c,g){
       const {P,off,lerp,centroid,fw,fh}=g;
-      const cover=()=>coverPath(c,g,{edge:-.02});
-      c.fillStyle='rgba(232,238,245,.18)'; cover(); c.fill();
-      c.save(); cover(); c.clip(); c.globalCompositeOperation='multiply';
-      for(const E of [EYE_R,EYE_L]){ const e=centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.04,e.x,e.y,fw*.16); gr.addColorStop(0,'rgb(120,100,130)'); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); }
+      const cover=()=>coverPath(c,g,{edge:-.02,eyes:1.5});
+      c.fillStyle='rgba(232,238,245,.18)'; cover(); c.fill('evenodd');
+      c.save(); coverPath(c,g,{edge:-.02}); c.clip(); c.globalCompositeOperation='multiply';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.04,e.x,e.y,fw*.17); gr.addColorStop(0,'#fff'); gr.addColorStop(.3,'#fff'); gr.addColorStop(.55,'rgb(120,100,130)'); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); }
       c.restore();
       c.fillStyle='#F7F7F2'; c.strokeStyle='rgba(0,0,0,.4)'; c.lineWidth=fw*.004; c.lineJoin='round';
       for(const i of [61,291]){ const t=off(lerp(P(0),P(i),.5),-.008,0); path(c,[off(t,0,-.02),off(t,0,.02),off(t,-.06,0)]); c.fill(); c.stroke(); }
@@ -695,20 +699,23 @@ const MASKS=[
       for(const k of [-.36,-.18,0,.18,.36]){ const a=off(P(10),.05,k), b=off(P(152),-.05,k*.8); c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(off(P(197),0,k*1.15).x,off(P(197),0,k*1.15).y,b.x,b.y); c.stroke(); }
       c.restore();
       shade(c,g,cover,P(10),P(152),.3,'evenodd');
-      c.fillStyle='#1A0A00';
-      for(const E of [EYE_R,EYE_L]){ const e=centroid(E); path(c,[off(e,.09,0),off(e,-.05,-.09),off(e,-.05,.09)]); c.fill(); }
+      // carved out: the person's eyes and mouth show through, lit like a candle would
+      c.save(); c.globalCompositeOperation='destination-out'; c.fillStyle='#000';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E); path(c,[off(e,.1,0),off(e,-.05,-.1),off(e,-.05,.1)]); c.fill(); }
       const n=P(4); path(c,[off(n,.06,0),off(n,-.03,-.05),off(n,-.03,.05)]); c.fill();
-      // jagged grin
       const m=ring(LIPS,1.5), pts=[]; for(let i=0;i<m.length;i++){ pts.push(m[i]); if(i%2) pts.push(off(m[i],(i<10?-1:1)*.025,0)); }
-      path(c,pts); c.fill();
+      path(c,pts); c.fill(); c.restore();
+      c.strokeStyle='#1A0A00'; c.lineWidth=fw*.012; c.lineJoin='round';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E); path(c,[off(e,.1,0),off(e,-.05,-.1),off(e,-.05,.1)]); c.stroke(); }
+      path(c,[off(n,.06,0),off(n,-.03,-.05),off(n,-.03,.05)]); c.stroke(); path(c,pts); c.stroke();
     }},
 
   {id:'witch',name:'Witch',
     tex(c,g){
       const {P}=g;
-      const cover=()=>coverPath(c,g,{edge:-.02});
-      c.fillStyle='rgba(96,150,70,.42)'; cover(); c.fill();
-      shade(c,g,cover,P(10),P(152),.2);
+      const cover=()=>coverPath(c,g,{edge:-.02,eyes:1.6});
+      c.fillStyle='rgba(96,150,70,.42)'; cover(); c.fill('evenodd');
+      shade(c,g,cover,P(10),P(152),.2,'evenodd');
     },
     over(c,g){
       const {P,off,fw}=g;
@@ -722,10 +729,10 @@ const MASKS=[
   {id:'zombie',name:'Zombie',
     tex(c,g){
       const {P,off,centroid,fw}=g, r=rng(13);
-      const cover=()=>coverPath(c,g,{edge:-.02});
-      c.fillStyle='rgba(120,140,110,.42)'; cover(); c.fill();
-      c.save(); cover(); c.clip(); c.globalCompositeOperation='multiply';
-      for(const E of [EYE_R,EYE_L]){ const e=centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.03,e.x,e.y,fw*.15); gr.addColorStop(0,'rgb(90,80,90)'); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); }
+      const cover=()=>coverPath(c,g,{edge:-.02,eyes:1.5});
+      c.fillStyle='rgba(120,140,110,.42)'; cover(); c.fill('evenodd');
+      c.save(); coverPath(c,g,{edge:-.02}); c.clip(); c.globalCompositeOperation='multiply';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.03,e.x,e.y,fw*.16); gr.addColorStop(0,'#fff'); gr.addColorStop(.3,'#fff'); gr.addColorStop(.55,'rgb(90,80,90)'); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); }
       c.restore();
       // stitched wounds on the forehead and cheek
       c.lineCap='round';
@@ -758,9 +765,9 @@ const MASKS=[
   {id:'devil',name:'Devil',
     tex(c,g){
       const {P}=g;
-      const cover=()=>coverPath(c,g,{edge:-.02});
-      c.fillStyle='rgba(185,20,30,.45)'; cover(); c.fill();
-      shade(c,g,cover,P(10),P(152),.2);
+      const cover=()=>coverPath(c,g,{edge:-.02,eyes:1.6});
+      c.fillStyle='rgba(185,20,30,.45)'; cover(); c.fill('evenodd');
+      shade(c,g,cover,P(10),P(152),.2,'evenodd');
     },
     over(c,g){
       const {P,off,lerp}=g;
@@ -779,7 +786,7 @@ const MASKS=[
       const petals=['#E0262E','#FFB347','#5EE1FF','#C084FC'];
       for(const E of [EYE_R,EYE_L]){ const e=centroid(E);
         for(let k=0;k<10;k++){ const a=k/10*6.283; c.fillStyle=petals[k%4]; c.beginPath(); c.ellipse(e.x+Math.cos(a)*fw*.15,e.y+Math.sin(a)*fw*.13,fw*.045,fw*.025,a,0,7); c.fill(); }
-        c.fillStyle='#111'; c.beginPath(); c.ellipse(e.x,e.y,fw*.12,fw*.095,g.roll,0,7); c.fill(); }
+        c.fillStyle='rgba(17,17,17,.8)'; c.beginPath(); c.ellipse(e.x,e.y,fw*.12,fw*.095,g.roll,0,7); c.fill(); }
       c.fillStyle='#111'; path(c,[off(P(6),-.03,0),off(P(98),0,-.01),off(P(2),-.01,0),off(P(327),0,.01)]); c.fill();
       c.strokeStyle='#111'; c.lineWidth=fw*.01; c.lineCap='round';
       const a=off(P(61),0,-.05), b=off(P(291),0,.05); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
@@ -1103,7 +1110,7 @@ const ptOf=(g,p)=>{ if(!Array.isArray(p)) return g.P(197); return g.off(anchor(g
 function regionPath(c,g,o){
   const {P,off}=g;
   switch(o.op){
-    case 'cover': coverPath(c,g,{edge:num(o.edge,-.1,.15,.02),eyes:num(o.eyes,0,3,1.35),lips:num(o.lips,0,3,1.1),nostrils:!!o.nostrils}); return 'evenodd';
+    case 'cover': coverPath(c,g,{edge:num(o.edge,-.1,.15,.02),eyes:o.eyes==='wide'?'wide':num(o.eyes,0,3,1.35),lips:num(o.lips,0,3,1.1),nostrils:!!o.nostrils}); return 'evenodd';
     case 'lower': { const J=inset(g,JAW,num(o.inset,-.05,.15,.07)), lC=off(J[J.length-1],-.05,0), rC=off(J[0],-.05,0), t=off(P(197),num(o.top,-.2,.2,.02),0);
       c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); return 'nonzero'; }
     case 'eyemask': { path(c,eyeShape(g,num(o.lift,-.05,.15,.06),false)); const h=num(o.holes,0,3,1.6); if(h){ addPath(c,g.ring(EYE_R,h)); addPath(c,g.ring(EYE_L,h)); } return 'evenodd'; }
@@ -1138,7 +1145,7 @@ function runOp(c,g,o){
   switch(o.op){
     case 'line': case 'curve': { const a=ptOf(g,o.from), b=ptOf(g,o.to); c.save(); c.globalAlpha=num(o.alpha,0,1,1); c.strokeStyle=col(o.color,'#111'); c.lineWidth=num(o.width,0,.2,.02)*fw; c.lineCap=o.cap==='butt'?'butt':'round';
       c.beginPath(); c.moveTo(a.x,a.y); if(o.op==='curve'){ const m=ptOf(g,o.ctl); c.quadraticCurveTo(m.x,m.y,b.x,b.y); } else c.lineTo(b.x,b.y); c.stroke(); c.restore(); return; }
-    case 'tint': { c.save(); c.globalAlpha=num(o.alpha,0,1,.35); c.fillStyle=col(o.fill,'#fff'); coverPath(c,g,{edge:-.02}); c.fill(); c.restore(); return; }
+    case 'tint': { c.save(); c.globalAlpha=num(o.alpha,0,1,.35); c.fillStyle=col(o.fill,'#fff'); coverPath(c,g,{edge:-.02,eyes:o.eyes==='wide'?'wide':num(o.eyes,0,3,1.6)}); c.fill('evenodd'); c.restore(); return; }
     case 'dots': withRegion(()=>{ c.fillStyle=col(o.color,'#fff'); const sp=num(o.spacing,.03,.4,.09), rad=num(o.r,.002,.1,.014)*fw;
       for(let i=-12;i<=12;i++) for(let k=-12;k<=12;k++){ const p=off(P(197),k*sp*.8,i*sp+(k%2?sp/2:0)); c.beginPath(); c.arc(p.x,p.y,rad,0,7); c.fill(); } }); return;
     case 'stripes': withRegion(()=>{ c.strokeStyle=col(o.color,'#fff'); c.lineWidth=num(o.width,.005,.3,.035)*fw; const sp=num(o.spacing,.03,.5,.11), an=num(o.angle,-180,180,45)*Math.PI/180;
@@ -1164,7 +1171,7 @@ function runOp(c,g,o){
     case 'stitch': { const a=ptOf(g,o.from), b=ptOf(g,o.to); c.lineCap='round'; c.strokeStyle=col(o.color,'#5A0F12'); c.lineWidth=fw*num(o.width,.005,.05,.02); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
       c.strokeStyle=col(o.thread,'#2A1A1A'); c.lineWidth=fw*.008; for(let k=.15;k<1;k+=.22){ const p={x:a.x+(b.x-a.x)*k,y:a.y+(b.y-a.y)*k}, d={x:-(b.y-a.y),y:b.x-a.x}, l=Math.hypot(d.x,d.y)||1; c.beginPath(); c.moveTo(p.x-d.x/l*fw*.025,p.y-d.y/l*fw*.025); c.lineTo(p.x+d.x/l*fw*.025,p.y+d.y/l*fw*.025); c.stroke(); } return; }
     case 'eyeshadow': { c.save(); coverPath(c,g,{edge:-.02}); c.clip(); c.globalCompositeOperation='multiply'; const cl=col(o.color,'rgb(120,100,130)');
-      for(const E of [EYE_R,EYE_L]){ const e=g.centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.04,e.x,e.y,fw*num(o.size,.06,.3,.16)); gr.addColorStop(0,cl); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); } c.restore(); return; }
+      for(const E of [EYE_R,EYE_L]){ const e=g.centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.04,e.x,e.y,fw*num(o.size,.06,.3,.16)); gr.addColorStop(0,'#fff'); gr.addColorStop(.3,'#fff'); gr.addColorStop(.55,cl); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); } c.restore(); return; }
     case 'blush': { c.save(); coverPath(c,g,{edge:-.02}); c.clip(); const cl=col(o.color,'rgba(240,120,140,.5)');
       for(const i of [50,280]){ const p=off(P(i),-.01,0), gr=c.createRadialGradient(p.x,p.y,0,p.x,p.y,fw*num(o.size,.05,.3,.14)); gr.addColorStop(0,cl); gr.addColorStop(1,'rgba(0,0,0,0)'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); } c.restore(); return; }
     case 'ears': { const style=o.style||'cat', cl=col(o.color,'#2E2A2E'), inner=col(o.inner,'#F4A6C2');
@@ -1726,7 +1733,7 @@ Anchors: forehead (top of the face), brow (between the brows), browL, browR, eye
 Sizes: r, rx, ry, width are fractions of face width. Colours are hex strings.
 
 REGION OPS (fill and/or stroke a shape; add "shade": 0..0.5 for curvature shading; "shadow": true for a soft drop shadow; "alpha": 0..1)
-- {"op":"cover","fill","edge":0.02,"eyes":1.35,"lips":1.1,"nostrils":true} full face. eyes/lips scale the holes (0 = no hole). edge inset from the outline (negative overruns it).
+- {"op":"cover","fill","edge":0.02,"eyes":1.35,"lips":1.1,"nostrils":true} full face. eyes/lips scale the holes (0 = no hole; "wide" for eyes gives a socket-sized opening that shows the brows, right for sheet and clay style skin masks). edge inset from the outline (negative overruns it).
 - {"op":"lower","fill","inset":0.07,"top":0.02} lower half, like a surgical mask or bandana: from below the eyes down over the chin.
 - {"op":"eyemask","fill","lift":0.06,"holes":1.6} across the eyes from brows to cheekbones, with eye holes.
 - {"op":"band","fill","from":0.1,"to":-0.1} horizontal band across the face between two heights (relative to the nose bridge).
@@ -1746,7 +1753,7 @@ LINE OPS
 - {"op":"curve","from":pt,"ctl":pt,"to":pt,"width","color"}
 - {"op":"stitch","from":pt,"to":pt,"color","thread"} a wound with cross stitches
 FACE PRESETS (tex)
-- {"op":"tint","fill","alpha":0.35} colour the whole face
+- {"op":"tint","fill","alpha":0.35,"eyes":1.6} colour the whole face, with eye holes (0 = none)
 - {"op":"whiskers","color","length":0.44,"width":0.011}
 - {"op":"nose","style":"cat|clown|pig","color","size"}
 - {"op":"fangs","color","length":0.06}
@@ -1763,7 +1770,7 @@ BEHIND (under)
 
 RULES
 - Original designs only. No brand logos, no named or copyrighted characters, no text or letters.
-- Do not paint over the eyes unless asked: give covers and eye masks their holes.
+- Never hide the eyes unless asked: give covers, tints and eye masks their holes, and cut carved features (a pumpkin's eyes) as holes.
 - Keep it to what was asked. Ten to thirty ops is typical. Prefer a few well-placed ops over many tiny ones.
 - Shapes in tex are cut off at the face outline; anything that should stick out belongs in over.
 - Colours: pick a palette that reads at a glance on a phone. Use shade 0.2 to 0.35 on large fabric covers so they look curved.
