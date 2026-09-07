@@ -103,13 +103,13 @@ function addPath(c,pts){ pts.forEach((p,i)=>i?c.lineTo(p.x,p.y):c.moveTo(p.x,p.y
 function eyeShape(g,lift,wing){
   const {P,off}=g;
   const pts=[];
-  if(wing) pts.push(off(P(127),.16,-.14));
-  pts.push(off(P(127),0,-.04));
+  if(wing) pts.push(off(P(127),.15,.03));
+  pts.push(off(P(127),0,-.005));
   BROW_R.forEach(i=>pts.push(off(P(i),lift,0)));
   pts.push(off(P(9),lift*.8,0));
   BROW_L.forEach(i=>pts.push(off(P(i),lift,0)));
-  pts.push(off(P(356),0,.04));
-  if(wing) pts.push(off(P(356),.16,.14));
+  pts.push(off(P(356),0,.005));
+  if(wing) pts.push(off(P(356),.15,-.03));
   [345,346,347].forEach(i=>pts.push(off(P(i),-.01,0)));
   pts.push(P(197));
   [118,117,116].forEach(i=>pts.push(off(P(i),-.01,0)));
@@ -121,23 +121,25 @@ const MASKS=[
 
   {id:'surgical',name:'Surgical',draw(c,g){
     const {P,off,lerp,fw}=g;
+    const lC=off(P(234),-.05,0), rC=off(P(454),-.05,0), t=off(P(197),.02,0);
     c.lineCap='round'; c.strokeStyle='#7CC1DE'; c.lineWidth=fw*.02;
-    for(const [a,ctl,b] of [[234,off(P(234),.05,-.3),172],[454,off(P(454),.05,.3),397]]){
-      c.beginPath(); c.moveTo(P(a).x,P(a).y); c.quadraticCurveTo(ctl.x,ctl.y,P(b).x,P(b).y); c.stroke();
+    for(const [a,ctl,b] of [[lC,off(lC,.06,-.3),P(172)],[rC,off(rC,.06,.3),P(397)]]){
+      c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(ctl.x,ctl.y,b.x,b.y); c.stroke();
     }
-    const t=off(P(197),.03,0);
     c.fillStyle='#9FD8EF'; c.strokeStyle='#6DB4D3'; c.lineWidth=fw*.012;
-    c.beginPath(); c.moveTo(P(234).x,P(234).y); c.quadraticCurveTo(t.x,t.y,P(454).x,P(454).y);
-    JAW.slice(1).forEach(i=>c.lineTo(P(i).x,P(i).y)); c.closePath(); c.fill(); c.stroke();
+    c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y);
+    JAW.slice(1).forEach(i=>c.lineTo(P(i).x,P(i).y)); c.lineTo(lC.x,lC.y); c.closePath(); c.fill(); c.stroke();
     c.strokeStyle='rgba(60,120,150,.45)';
     for(const k of [.3,.55,.8]){ const a=lerp(P(234),P(58),k), b=lerp(P(454),P(288),k), m=off(lerp(a,b,.5),-.03,0);
       c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(m.x,m.y,b.x,b.y); c.stroke(); }
-    c.save(); c.translate(t.x,t.y); c.rotate(g.roll); c.fillStyle='#5E9DBA'; c.beginPath(); c.roundRect(-fw*.12,-fw*.02,fw*.24,fw*.04,fw*.02); c.fill(); c.restore();
+    // wire sits just under the fabric edge: the quadratic peak, nudged down the face
+    const peak=off({x:.25*lC.x+.5*t.x+.25*rC.x,y:.25*lC.y+.5*t.y+.25*rC.y},-.035,0);
+    c.save(); c.translate(peak.x,peak.y); c.rotate(g.roll); c.fillStyle='#5E9DBA'; c.beginPath(); c.roundRect(-fw*.12,-fw*.02,fw*.24,fw*.04,fw*.02); c.fill(); c.restore();
   }},
 
   {id:'hero',name:'Hero',draw(c,g){
     c.fillStyle='#161418';
-    path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.55)); addPath(c,g.ring(EYE_L,1.55)); c.fill('evenodd');
+    path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); c.fill('evenodd');
     c.strokeStyle='rgba(255,255,255,.22)'; c.lineWidth=g.fw*.012;
     path(c,BROW_R.concat([9],BROW_L).map(i=>g.off(g.P(i),.045,0)),false); c.stroke();
   }},
@@ -145,9 +147,9 @@ const MASKS=[
   {id:'masquerade',name:'Masquerade',draw(c,g){
     const {P,off,fw}=g;
     c.fillStyle='#E9B94E'; c.strokeStyle='#8C6A1D'; c.lineWidth=fw*.012;
-    path(c,eyeShape(g,.05,true)); addPath(c,g.ring(EYE_R,1.5)); addPath(c,g.ring(EYE_L,1.5)); c.fill('evenodd'); c.stroke();
+    path(c,eyeShape(g,.05,true)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); c.fill('evenodd'); c.stroke();
     c.fillStyle='#6B3FA0';
-    for(const E of [EYE_R,EYE_L]){ path(c,g.ring(E,1.9)); addPath(c,g.ring(E,1.5)); c.fill('evenodd'); }
+    for(const E of [EYE_R,EYE_L]){ path(c,g.ring(E,2)); addPath(c,g.ring(E,1.6)); c.fill('evenodd'); }
     c.fillStyle='#F9E3A1';
     BROW_R.concat([9],BROW_L).forEach(i=>{ const p=off(P(i),.03,0); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); });
     const j=off(P(9),.02,0); c.save(); c.translate(j.x,j.y); c.rotate(g.roll); c.fillStyle='#D33F7A';
@@ -156,18 +158,18 @@ const MASKS=[
 
   {id:'cat',name:'Cat',draw(c,g){
     const {P,off,lerp,dist,fw}=g;
-    for(const [a,b,side] of [[103,67,-1],[332,297,1]]){
-      const base1=off(P(a),-.02,0), base2=off(P(b),-.02,0), apex=off(lerp(P(a),P(b),.5),.42,side*.06);
+    for(const [a,b,side] of [[54,103,-1],[284,332,1]]){
+      const base1=off(P(a),.02,side*.05), base2=off(P(b),-.01,-side*.02), apex=off(lerp(P(a),P(b),.5),.2,side*.07);
       c.fillStyle='#2E2A2E'; path(c,[base1,apex,base2]); c.fill();
       const m={x:(base1.x+base2.x+apex.x)/3,y:(base1.y+base2.y+apex.y)/3};
       c.fillStyle='#F4A6C2'; path(c,[base1,apex,base2].map(p=>lerp(m,p,.6))); c.fill();
     }
-    const n=P(4), nw=dist(P(49),P(279))*.7;
+    const n=P(4), nw=dist(P(49),P(279))*.58;
     c.save(); c.translate(n.x,n.y); c.rotate(g.roll); c.fillStyle='#F08BAE';
     c.beginPath(); c.moveTo(-nw,-nw*.35); c.lineTo(nw,-nw*.35); c.lineTo(0,nw*.6); c.closePath(); c.fill(); c.restore();
     c.lineCap='round';
-    for(const s of [-1,1]) for(const [dy,ey] of [[.02,.09],[0,0],[-.02,-.09]]){
-      const a=off(n,dy,s*.1), b=off(n,ey,s*.6);
+    for(const s of [-1,1]) for(const [dy,ey] of [[.015,.07],[0,0],[-.015,-.07]]){
+      const a=off(n,dy,s*.17), b=off(n,ey,s*.44);
       c.strokeStyle='rgba(0,0,0,.35)'; c.lineWidth=fw*.02; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
       c.strokeStyle='#fff'; c.lineWidth=fw*.011; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
     }
@@ -195,22 +197,53 @@ const MASKS=[
 
   {id:'bandana',name:'Bandana',draw(c,g){
     const {P,off,fw}=g;
-    const t=off(P(197),.03,0);
-    const pts=[P(234),t,P(454),P(323),P(361),P(288),P(397),P(365),off(P(400),-.18,0),off(P(152),-.3,0),off(P(176),-.18,0),P(136),P(172),P(58),P(132),P(93)];
+    const t=off(P(197),.01,0), lC=off(P(234),-.04,0), rC=off(P(454),-.04,0);
+    const q=n=>{const o=[];for(let i=1;i<n;i++){const u=i/n,k=1-u;o.push({x:k*k*lC.x+2*k*u*t.x+u*u*rC.x,y:k*k*lC.y+2*k*u*t.y+u*u*rC.y});}return o};
+    const pts=[lC,...q(8),rC,P(323),P(361),P(288),P(397),P(365),off(P(400),-.18,0),off(P(152),-.3,0),off(P(176),-.18,0),P(136),P(172),P(58),P(132),P(93)];
     c.fillStyle='#C62B3A'; path(c,pts); c.fill();
     c.save(); path(c,pts); c.clip();
     c.fillStyle='rgba(255,255,255,.85)';
     for(let i=-7;i<=7;i++) for(let j=0;j<10;j++){ const p=off(t,-.08*j,.1*i+(j%2?.05:0)); c.beginPath(); c.arc(p.x,p.y,fw*.012,0,7); c.fill(); }
     c.restore();
     c.strokeStyle='#A81F2C'; c.lineWidth=g.fh*.06; c.lineCap='round';
-    c.beginPath(); c.moveTo(P(234).x,P(234).y); c.quadraticCurveTo(t.x,t.y,P(454).x,P(454).y); c.stroke();
+    c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); c.stroke();
   }},
 ];
+
+// Reference face for the tray thumbnails: the landmarks the masks actually read,
+// taken from the MediaPipe canonical face model, packed as index,x,y per mille.
+const REF=(()=>{
+  const L=Array.from({length:478},()=>({x:.5,y:.5,z:0}));
+  for(const e of "0,500,600;4,500,496;7,301,389;9,500,308;10,500,190;17,500,668;21,168,289;33,292,386;37,467,597;39,433,603;40,410,613;49,423,501;54,206,248;58,186,648;61,385,632;63,267,311;66,371,301;67,335,199;70,232,331;84,467,666;91,414,649;93,147,517;103,260,217;105,313,301;107,435,304;109,411,191;116,197,447;117,254,447;118,293,455;127,138,397;132,160,581;133,413,389;136,262,732;144,328,397;145,351,399;146,397,641;148,439,806;149,350,779;150,310,761;152,500,810;153,373,399;154,393,396;155,406,392;157,393,379;158,373,376;159,351,376;160,328,377;161,312,380;162,146,336;163,312,393;172,222,698;173,406,384;176,392,795;181,438,659;185,393,622;197,500,419;234,141,456;246,301,383;249,699,389;251,832,289;263,708,386;267,533,597;269,567,603;270,590,613;279,577,501;284,794,248;288,814,648;291,615,632;293,733,311;296,629,301;297,665,199;300,768,331;314,533,666;321,586,649;323,853,517;332,740,217;334,687,301;336,565,304;338,589,191;345,803,447;346,746,447;347,707,455;356,862,397;361,840,581;362,587,389;365,738,732;373,672,397;374,649,399;375,603,641;377,561,806;378,650,779;379,690,761;380,627,399;381,607,396;382,594,392;384,607,379;385,627,376;386,649,376;387,672,377;388,688,380;389,854,336;390,688,393;397,778,698;398,594,384;400,608,795;405,562,659;409,607,622;454,859,456;466,699,383;468,352,387;473,648,387".split(';')){ const [i,x,y]=e.split(',');
+    L[+i]={x:+x/1000,y:+y/1000,z:0}; }
+  return L;
+})();
+const FACE_OVAL=[10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
+const LIPS=[61,185,40,39,37,0,267,269,270,409,291,375,321,405,314,17,84,181,91,146];
+function refFace(c,g){
+  const {P,fw}=g;
+  const fill=(ids,style)=>{ c.fillStyle=style; path(c,ids.map(P)); c.fill(); };
+  fill(FACE_OVAL,'#D9B899');
+  fill(EYE_R,'#fff'); fill(EYE_L,'#fff');
+  c.fillStyle='#3A2A22'; for(const i of [468,473]){ const p=P(i); c.beginPath(); c.arc(p.x,p.y,fw*.035,0,7); c.fill(); }
+  c.strokeStyle='#4A3428'; c.lineWidth=fw*.022; c.lineCap='round';
+  for(const b of [BROW_R,BROW_L]){ path(c,b.map(P),false); c.stroke(); }
+  fill(LIPS,'#B4676B');
+}
 
 // ---------- State ----------
 const $=id=>document.getElementById(id);
 const stage=$('stage'), video=$('video'), out=$('out'), ctx=out.getContext('2d'), hint=$('hint'), toast=$('toast');
 let landmarker=null, stream=null, facing='user', running=false, lastT=-1, result=null, current=MASKS[1];
+// Detection jitters a pixel or two per frame. Ease each landmark towards its new
+// position instead of snapping, so the masks sit still on a still face.
+let prev=null;
+function smooth(faces,a=.5){
+  if(!prev || prev.length!==faces.length){ prev=faces.map(f=>f.map(p=>({x:p.x,y:p.y,z:p.z}))); return prev; }
+  faces.forEach((f,i)=>{ const s=prev[i];
+    f.forEach((p,j)=>{ s[j].x+=(p.x-s[j].x)*a; s[j].y+=(p.y-s[j].y)*a; s[j].z+=(p.z-s[j].z)*a; }); });
+  return prev;
+}
 const say=m=>{ toast.textContent=m; toast.classList.add('show'); setTimeout(()=>toast.classList.remove('show'),2600); };
 
 // ---------- Load model ----------
@@ -233,7 +266,7 @@ async function startCamera(){
     out.width=video.videoWidth; out.height=video.videoHeight;
     if(landmarker.runningMode!=='VIDEO') await landmarker.setOptions({runningMode:'VIDEO'});
     stage.className='stage live'; $('actions').classList.remove('show');
-    hint.textContent='Looking for a face…'; running=true; lastT=-1; loop();
+    hint.textContent='Looking for a face…'; running=true; lastT=-1; prev=null; loop();
   }catch(e){
     const insecure=!window.isSecureContext;
     say(insecure?'Camera needs HTTPS. Host this file (e.g. Netlify, GitHub Pages) and open that link.':'Camera blocked. Allow camera access for this page and try again.');
@@ -246,6 +279,7 @@ function loop(){
   if(video.readyState>=2 && video.currentTime!==lastT){
     lastT=video.currentTime;
     result=landmarker.detectForVideo(video,performance.now());
+    result.faceLandmarks=smooth(result.faceLandmarks);
     draw(video);
     const n=result.faceLandmarks.length;
     hint.textContent=n?'Tracking. Turn, tilt, talk, it follows.':'Looking for a face…';
@@ -276,7 +310,7 @@ $('file').onchange=async e=>{
   out.width=Math.round(img.width*r); out.height=Math.round(img.height*r);
   await landmarker.setOptions({runningMode:'IMAGE'});
   const tmp=document.createElement('canvas'); tmp.width=out.width; tmp.height=out.height; tmp.getContext('2d').drawImage(img,0,0,out.width,out.height);
-  result=landmarker.detect(tmp); facing='none'; draw(tmp);
+  result=landmarker.detect(tmp); prev=null; facing='none'; draw(tmp);
   stage.className='stage still'; $('actions').classList.add('show');
   hint.textContent=result.faceLandmarks.length?'Fitted to the face in the photo.':'No face found in that photo.';
   e.target.value='';
@@ -284,16 +318,17 @@ $('file').onchange=async e=>{
 
 // ---------- Mask picker ----------
 function selectMask(m){ current=m; [...$('masks').children].forEach(b=>{ const on=b.dataset.id===m.id; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); }); if(!running&&result) draw(stage.classList.contains('still')?out:video); }
+function thumb(m){
+  const t=document.createElement('canvas'); t.width=t.height=124;
+  const c=t.getContext('2d'), VH=126, VW=VH*.75;
+  c.translate(62-.5*VW,68-.5*VH);           // centre the face, leave headroom for ears
+  const g=geom(REF,VW,VH);
+  refFace(c,g); m.draw(c,g);
+  return t;
+}
 for(const m of MASKS){
   const b=document.createElement('button'); b.className='mask'; b.dataset.id=m.id; b.setAttribute('role','option');
-  const t=document.createElement('canvas'); t.width=t.height=124; const c=t.getContext('2d');
-  c.fillStyle='#D9B899'; c.beginPath(); c.ellipse(62,66,36,46,0,0,7); c.fill();
-  c.fillStyle='#4A3428'; c.beginPath(); c.ellipse(62,30,40,22,0,Math.PI,0); c.fill();
-  c.fillStyle='#3A2A22'; for(const s of [-1,1]){ c.beginPath(); c.ellipse(62+s*15,52,4,4,0,0,7); c.fill(); }
-  // thumbnail uses a synthetic landmark set: just draw a coloured badge for orientation
-  c.fillStyle={none:'transparent',surgical:'#9FD8EF',hero:'#161418',masquerade:'#E9B94E',cat:'#F08BAE',shades:'#111',bandana:'#C62B3A'}[m.id];
-  if(m.id!=='none'){ c.beginPath(); c.roundRect(28,m.id==='surgical'||m.id==='bandana'?70:44,68,m.id==='cat'?14:26,10); c.fill(); }
-  b.append(t,Object.assign(document.createElement('span'),{textContent:m.name}));
+  b.append(thumb(m),Object.assign(document.createElement('span'),{textContent:m.name}));
   b.onclick=()=>selectMask(m); $('masks').append(b);
 }
 selectMask(current);
