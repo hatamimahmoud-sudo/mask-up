@@ -28,9 +28,8 @@ window.__ids = MASKS.map(m => m.id);
 window.__render = id => {
   const c = document.getElementById('c'), ctx = c.getContext('2d');
   ctx.fillStyle = '#0E0C12'; ctx.fillRect(0, 0, ${W}, ${H});
-  const g = geom(REF, ${W}, ${H});
-  refFace(ctx, g);
-  MASKS.find(m => m.id === id).draw(ctx, g);
+  refFace(ctx, geom(REF, ${W}, ${H}));
+  composite(ctx, [REF], ${W}, ${H}, MASKS.find(m => m.id === id), c);
   return c.toDataURL('image/png');
 };
 window.__ready = true;
@@ -43,7 +42,7 @@ const server = http.createServer((req, res) => {
 }).listen(0);
 const url = `http://localhost:${server.address().port}/`;
 
-const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+const browser = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const tab = await browser.newPage({ viewport: { width: W, height: H } });
 tab.on('pageerror', e => { console.error('page error:', e.message); process.exitCode = 1; });
 await tab.goto(url);
