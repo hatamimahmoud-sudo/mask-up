@@ -32,6 +32,14 @@
   .stage.live .top,.stage.frozen .top,.stage.still .top,.stage.clip .top{display:block}
   .brand{font-weight:800;font-size:18px;letter-spacing:-.02em;text-shadow:0 1px 8px rgba(0,0,0,.7)}
   .hint{margin-top:6px;font-size:14px;color:var(--ink);opacity:.85;min-height:18px;text-shadow:0 1px 2px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.6)}
+  .tools{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:calc(env(safe-area-inset-right) + 14px);display:none;flex-direction:column;align-items:flex-end;gap:8px}
+  .stage.live .tools,.stage.frozen .tools,.stage.still .tools{display:flex}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;min-height:36px;border-radius:999px;background:rgba(0,0,0,.45);color:var(--ink);font-size:13px;font-weight:600}
+  .pill.on{background:var(--accent);color:var(--accent-ink)}
+  .duo{display:none;gap:2px;padding:3px;border-radius:999px;background:rgba(0,0,0,.45)}
+  .stage.two .duo{display:flex}
+  .duo button{display:inline-flex;align-items:center;padding:6px 10px;min-height:30px;border-radius:999px;font-size:13px;font-weight:600;color:var(--muted);background:none}
+  .duo button.on{color:var(--ink);background:rgba(255,255,255,.16)}
   .timer{position:absolute;top:calc(env(safe-area-inset-top) + 14px);left:50%;transform:translateX(-50%);background:rgba(0,0,0,.5);color:#fff;font-weight:600;font-size:14px;padding:6px 12px;border-radius:999px;display:none;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
   .timer::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--rec);animation:blink 1s infinite}
   .stage.recording .timer{display:flex}
@@ -110,6 +118,14 @@
     <div class="brand" aria-hidden="true">Mask up.</div>
     <div class="hint" id="hint" aria-live="polite"></div>
   </div>
+  <div class="tools">
+    <button class="pill" id="btnGlow" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8zM5 16l.9 2.1L8 19l-2.1.9L5 22l-.9-2.1L2 19l2.1-.9zM19 14l.7 1.6 1.6.7-1.6.7L19 18.6l-.7-1.6-1.6-.7 1.6-.7z"/></svg>Glow</button>
+    <div class="duo" role="group" aria-label="Two faces">
+      <button class="on" data-duo="match">Match</button>
+      <button data-duo="pair">Pair</button>
+      <button data-duo="swap" aria-label="Swap masks"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg></button>
+    </div>
+  </div>
   <div class="timer" id="timer">0:00</div>
   <div class="dock">
     <div class="modes" role="tablist" aria-label="Capture mode">
@@ -134,6 +150,7 @@
     <p class="msg">Choose a photo of someone wearing a mask you like. The app takes its colours and where it sits, and draws its own version. Nothing from the photo is copied, and it stays on your phone.</p>
     <div class="row2">
       <button class="btn primary" id="btnPick">Choose a photo</button>
+      <button class="btn" id="btnSnap" hidden>Snap the camera</button>
     </div>
     <div class="row2">
       <input class="field" id="imgUrl" type="url" inputmode="url" placeholder="Or paste a link" aria-label="Image link" autocomplete="off">
@@ -654,7 +671,122 @@ const MASKS=[
         c.fillStyle='rgba(255,255,255,.45)'; c.beginPath(); c.arc(tip.x-fw*.013,tip.y-fw*.013,fw*.013,0,7); c.fill();
       }
     }},
+
+  // ----- Halloween -----
+  {id:'pumpkin',name:'Pumpkin',
+    tex(c,g){
+      const {P,off,ring,centroid,fw,fh}=g;
+      const cover=()=>coverPath(c,g,{edge:.02});
+      c.fillStyle='#F28C28'; cover(); c.fill('evenodd');
+      // ribs: darker bands running down the face
+      c.save(); cover(); c.clip(); c.strokeStyle='rgba(120,50,0,.28)'; c.lineWidth=fw*.05; c.lineCap='round';
+      for(const k of [-.36,-.18,0,.18,.36]){ const a=off(P(10),.05,k), b=off(P(152),-.05,k*.8); c.beginPath(); c.moveTo(a.x,a.y); c.quadraticCurveTo(off(P(197),0,k*1.15).x,off(P(197),0,k*1.15).y,b.x,b.y); c.stroke(); }
+      c.restore();
+      shade(c,g,cover,P(10),P(152),.3,'evenodd');
+      c.fillStyle='#1A0A00';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E); path(c,[off(e,.09,0),off(e,-.05,-.09),off(e,-.05,.09)]); c.fill(); }
+      const n=P(4); path(c,[off(n,.06,0),off(n,-.03,-.05),off(n,-.03,.05)]); c.fill();
+      // jagged grin
+      const m=ring(LIPS,1.5), pts=[]; for(let i=0;i<m.length;i++){ pts.push(m[i]); if(i%2) pts.push(off(m[i],(i<10?-1:1)*.025,0)); }
+      path(c,pts); c.fill();
+    }},
+
+  {id:'witch',name:'Witch',
+    tex(c,g){
+      const {P}=g;
+      const cover=()=>coverPath(c,g,{edge:-.02});
+      c.fillStyle='rgba(96,150,70,.42)'; cover(); c.fill();
+      shade(c,g,cover,P(10),P(152),.2);
+    },
+    over(c,g){
+      const {P,off,fw}=g;
+      const top=off(P(10),.46,.05), base=off(P(10),.1,0);
+      c.fillStyle='#17141C'; c.lineJoin='round';
+      shadow(c,g,()=>{ c.save(); c.translate(base.x,base.y); c.rotate(g.roll); c.beginPath(); c.ellipse(0,0,fw*.62,fw*.09,0,0,7); c.fill(); c.restore(); },.4);
+      path(c,[off(base,0,-.3),top,off(base,0,.3)]); c.fill();
+      c.strokeStyle='#6B3FA0'; c.lineWidth=fw*.05; c.beginPath(); const b1=off(base,.05,-.28), b2=off(base,.05,.28); c.moveTo(b1.x,b1.y); c.lineTo(b2.x,b2.y); c.stroke();
+    }},
+
+  {id:'zombie',name:'Zombie',
+    tex(c,g){
+      const {P,off,centroid,fw}=g, r=rng(13);
+      const cover=()=>coverPath(c,g,{edge:-.02});
+      c.fillStyle='rgba(120,140,110,.42)'; cover(); c.fill();
+      c.save(); cover(); c.clip(); c.globalCompositeOperation='multiply';
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.03,e.x,e.y,fw*.15); gr.addColorStop(0,'rgb(90,80,90)'); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); }
+      c.restore();
+      // stitched wounds on the forehead and cheek
+      c.lineCap='round';
+      for(const [i,u,v,len,ang] of [[10,-.12,-.1,.22,.15],[280,.02,.03,.16,-.5]]){
+        const a=off(P(i),u,v), b=off(a,-len*Math.sin(ang),len*Math.cos(ang)*.9);
+        c.strokeStyle='#5A0F12'; c.lineWidth=fw*.02; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+        c.strokeStyle='#2A1A1A'; c.lineWidth=fw*.008;
+        for(let k=.15;k<1;k+=.22){ const p={x:a.x+(b.x-a.x)*k,y:a.y+(b.y-a.y)*k}, d={x:-(b.y-a.y),y:b.x-a.x}, l=Math.hypot(d.x,d.y)||1;
+          c.beginPath(); c.moveTo(p.x-d.x/l*fw*.025,p.y-d.y/l*fw*.025); c.lineTo(p.x+d.x/l*fw*.025,p.y+d.y/l*fw*.025); c.stroke(); }
+      }
+      c.fillStyle='rgba(70,60,60,.35)';
+      for(let i=0;i<14;i++){ const p=off(P(197),(r()-.5)*.8,(r()-.5)*.9); c.beginPath(); c.ellipse(p.x,p.y,fw*(.01+r()*.02),fw*(.006+r()*.01),r()*3,0,7); c.fill(); }
+    }},
+
+  {id:'mummy',name:'Mummy',
+    tex(c,g){
+      const {P,off,fw,fh}=g, r=rng(17);
+      const cover=()=>coverPath(c,g,{edge:-.02,eyes:1.9});
+      c.fillStyle='rgba(232,224,206,.97)'; cover(); c.fill('evenodd');
+      c.save(); cover(); c.clip('evenodd');
+      // bandage seams, each strip a little askew
+      c.strokeStyle='rgba(120,100,70,.35)'; c.lineWidth=fw*.008;
+      for(let k=-.55;k<.6;k+=.055){ const t=(r()-.5)*.03, a=off(P(197),k+t,-.7), b=off(P(197),k-t,.7); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.strokeStyle='rgba(255,255,255,.35)'; c.lineWidth=fw*.02;
+      for(let k=-.52;k<.6;k+=.055){ const t=(r()-.5)*.03, a=off(P(197),k+t+.02,-.7), b=off(P(197),k-t+.02,.7); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+      c.restore();
+      shade(c,g,cover,P(10),P(152),.25,'evenodd');
+    }},
+
+  {id:'devil',name:'Devil',
+    tex(c,g){
+      const {P}=g;
+      const cover=()=>coverPath(c,g,{edge:-.02});
+      c.fillStyle='rgba(185,20,30,.45)'; cover(); c.fill();
+      shade(c,g,cover,P(10),P(152),.2);
+    },
+    over(c,g){
+      const {P,off,lerp}=g;
+      for(const [a,b,side] of [[54,103,-1],[284,332,1]]){
+        const base1=off(P(a),.02,side*.06), base2=off(P(b),-.01,-side*.01), tip=off(lerp(P(a),P(b),.5),.26,side*.16), ctl=off(lerp(P(a),P(b),.5),.2,side*.02);
+        c.fillStyle='#B3121B'; shadow(c,g,()=>{ c.beginPath(); c.moveTo(base1.x,base1.y); c.quadraticCurveTo(ctl.x,ctl.y,tip.x,tip.y); c.quadraticCurveTo(off(ctl,-.02,side*.04).x,off(ctl,-.02,side*.04).y,base2.x,base2.y); c.closePath(); c.fill(); },.35);
+      }
+    }},
+
+  {id:'sugarskull',name:'Sugar skull',
+    tex(c,g){
+      const {P,off,ring,centroid,lerp,fw,fh}=g;
+      const cover=()=>coverPath(c,g,{edge:.02});
+      c.fillStyle='rgba(245,243,238,.96)'; cover(); c.fill('evenodd');
+      shade(c,g,cover,P(10),P(152),.15,'evenodd');
+      const petals=['#E0262E','#FFB347','#5EE1FF','#C084FC'];
+      for(const E of [EYE_R,EYE_L]){ const e=centroid(E);
+        for(let k=0;k<10;k++){ const a=k/10*6.283; c.fillStyle=petals[k%4]; c.beginPath(); c.ellipse(e.x+Math.cos(a)*fw*.15,e.y+Math.sin(a)*fw*.13,fw*.045,fw*.025,a,0,7); c.fill(); }
+        c.fillStyle='#111'; c.beginPath(); c.ellipse(e.x,e.y,fw*.12,fw*.095,g.roll,0,7); c.fill(); }
+      c.fillStyle='#111'; path(c,[off(P(6),-.03,0),off(P(98),0,-.01),off(P(2),-.01,0),off(P(327),0,.01)]); c.fill();
+      c.strokeStyle='#111'; c.lineWidth=fw*.01; c.lineCap='round';
+      const a=off(P(61),0,-.05), b=off(P(291),0,.05); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+      for(let k=0;k<=8;k++){ const p=lerp(a,b,k/8), q1=off(p,.03,0), q2=off(p,-.03,0); c.beginPath(); c.moveTo(q1.x,q1.y); c.lineTo(q2.x,q2.y); c.stroke(); }
+      const f=off(P(9),.07,0); for(let k=0;k<6;k++){ const an=k/6*6.283; c.fillStyle=petals[(k+1)%4]; c.beginPath(); c.arc(f.x+Math.cos(an)*fw*.05,f.y+Math.sin(an)*fw*.05,fw*.02,0,7); c.fill(); }
+      c.fillStyle='#FFB347'; c.beginPath(); c.arc(f.x,f.y,fw*.022,0,7); c.fill();
+      for(const i of [50,280]){ const p=off(P(i),-.02,0); c.strokeStyle='#5EE1FF'; c.lineWidth=fw*.012; c.beginPath(); c.arc(p.x,p.y,fw*.05,0,4.7); c.stroke(); }
+    }},
+
+  // Surprise me: not a mask, a chip that picks one
+  {id:'shuffle',name:'Surprise me'},
 ];
+
+// Duo pairs: the mask the second face gets when Pair is on. Anything not listed pairs with itself.
+const PAIRS={surgical:'bandana',bandana:'gaiter',gaiter:'balaclava',balaclava:'skull',hero:'vampire',masquerade:'gold',shades:'moustache',eyepatch:'bandana',
+  clay:'mud',sheet:'charcoal',charcoal:'gold',gold:'masquerade',mud:'clay',skull:'clown',clown:'skull',vampire:'hero',camo:'warpaint',warpaint:'camo',
+  freckles:'gems',gems:'freckles',beard:'moustache',moustache:'beard',cat:'bunny',bear:'bunny',bunny:'bear',antennae:'cat',
+  pumpkin:'witch',witch:'pumpkin',zombie:'mummy',mummy:'zombie',devil:'vampire',sugarskull:'skull'};
+const partner=m=>MASKS.find(x=>x.id===(PAIRS[m.id]||m.id))||m;
 
 // ---------- Custom mask ----------
 // Built from a spec rather than drawn by hand: a shape, up to three colours and a pattern.
@@ -736,12 +868,14 @@ const mesh=(()=>{
   if(!gl) return null;
   const VS=`attribute vec2 aPos;attribute vec2 aUv;varying vec2 vUv;varying vec2 vPos;
     void main(){vUv=aUv;vPos=aPos;gl_Position=vec4(aPos.x*2.0-1.0,1.0-aPos.y*2.0,0.0,1.0);}`;
-  const FS=`#ifdef GL_FRAGMENT_PRECISION_HIGH
+  const PREC=`#ifdef GL_FRAGMENT_PRECISION_HIGH
     precision highp float;
     #else
     precision mediump float;
     #endif
-    uniform sampler2D uMask;uniform sampler2D uLight;uniform float uMean;uniform float uRelight;
+    `;
+  // Mask pass: the mask texture, re-lit from a blurred copy of the frame
+  const FS_MASK=PREC+`uniform sampler2D uMask;uniform sampler2D uLight;uniform float uMean;uniform float uRelight;
     varying vec2 vUv;varying vec2 vPos;
     void main(){
       vec4 m=texture2D(uMask,vUv);
@@ -749,27 +883,58 @@ const mesh=(()=>{
       float f=mix(1.0,clamp(l/max(uMean,.05),.7,1.5),uRelight);
       gl_FragColor=vec4(m.rgb*f,m.a);
     }`;
+  // Skin pass (Glow): a surface blur of the frame where the map says skin, blush where it says cheek, tint where it says lip.
+  // Nearby pixels only count when they are close in colour, so pores go and the edges of the nose and jaw stay.
+  const FS_SKIN=PREC+`uniform sampler2D uMap;uniform sampler2D uFrame;uniform vec2 uStep;uniform float uSmooth;
+    varying vec2 vUv;varying vec2 vPos;
+    void main(){
+      vec4 b=texture2D(uMap,vUv);
+      vec3 v=texture2D(uFrame,vPos).rgb;
+      vec3 acc=v; float wsum=1.0;
+      for(int i=-2;i<=2;i++) for(int j=-2;j<=2;j++){
+        if(i==0&&j==0) continue;
+        vec3 s=texture2D(uFrame,vPos+vec2(float(i),float(j))*uStep).rgb;
+        float w=1.0-smoothstep(0.0,0.22,length(s-v));
+        acc+=s*w; wsum+=w;
+      }
+      vec3 col=mix(v,acc/wsum,b.r*uSmooth);
+      col+=b.r*uSmooth*0.035;
+      col=mix(col,col*vec3(1.04,.82,.86)+vec3(.07,0.0,.02),b.g*.5);
+      col=mix(col,col*vec3(1.0,.62,.66)+vec3(.05,0.0,0.0),b.b*.45);
+      float a=clamp(max(b.r,max(b.g,b.b))*1.4,0.0,1.0);
+      gl_FragColor=vec4(col*a,a);
+    }`;
   const pos=new Float32Array(468*2);
-  let posB, uMean, uRelight, lost=false, bound=null;
-  function init(){
+  let posB, uvB, lost=false, mask, skin, slots, cur=null;
+  const program=(fs,uniforms)=>{
     const sh=(t,src)=>{ const o=gl.createShader(t); gl.shaderSource(o,src); gl.compileShader(o); if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
-    const pr=gl.createProgram(); gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,FS)); gl.linkProgram(pr); gl.useProgram(pr);
+    const pr=gl.createProgram(); gl.attachShader(pr,sh(gl.VERTEX_SHADER,VS)); gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(pr);
+    const p={pr,aPos:gl.getAttribLocation(pr,'aPos'),aUv:gl.getAttribLocation(pr,'aUv')};
+    for(const u of uniforms) p[u]=gl.getUniformLocation(pr,u);
+    return p;
+  };
+  const use=p=>{ if(cur===p) return; cur=p; gl.useProgram(p.pr);
+    gl.bindBuffer(gl.ARRAY_BUFFER,posB); gl.enableVertexAttribArray(p.aPos); gl.vertexAttribPointer(p.aPos,2,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,uvB); gl.enableVertexAttribArray(p.aUv); gl.vertexAttribPointer(p.aUv,2,gl.FLOAT,false,0,0); };
+  const texture=unit=>{ const t=gl.createTexture(); gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,t);
+    for(const p of ['TEXTURE_WRAP_S','TEXTURE_WRAP_T']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.CLAMP_TO_EDGE);
+    for(const p of ['TEXTURE_MIN_FILTER','TEXTURE_MAG_FILTER']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.LINEAR); return t; };
+  const upload=(unit,src)=>{ gl.activeTexture(gl.TEXTURE0+unit); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src); };
+  function init(){
+    cur=null;
     const buf=(target,data,usage)=>{ const b=gl.createBuffer(); gl.bindBuffer(target,b); gl.bufferData(target,data,usage); return b; };
-    const attr=(name,b)=>{ const a=gl.getAttribLocation(pr,name); gl.bindBuffer(gl.ARRAY_BUFFER,b); gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a,2,gl.FLOAT,false,0,0); };
-    posB=buf(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW); attr('aPos',posB);
-    attr('aUv',buf(gl.ARRAY_BUFFER,MESH.uv,gl.STATIC_DRAW));
-    buf(gl.ELEMENT_ARRAY_BUFFER,MESH.tri,gl.STATIC_DRAW);
-    const texture=unit=>{ const t=gl.createTexture(); gl.activeTexture(gl.TEXTURE0+unit); gl.bindTexture(gl.TEXTURE_2D,t);
-      for(const p of ['TEXTURE_WRAP_S','TEXTURE_WRAP_T']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.CLAMP_TO_EDGE);
-      for(const p of ['TEXTURE_MIN_FILTER','TEXTURE_MAG_FILTER']) gl.texParameteri(gl.TEXTURE_2D,gl[p],gl.LINEAR); return t; };
-    texture(0); texture(1);
+    posB=buf(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW); uvB=buf(gl.ARRAY_BUFFER,MESH.uv,gl.STATIC_DRAW); buf(gl.ELEMENT_ARRAY_BUFFER,MESH.tri,gl.STATIC_DRAW);
+    // texture units: 0 and 2 hold one mask each (two faces can wear two masks), 1 the light map, 3 the frame, 4 the skin map
+    for(const u of [0,1,2,3,4]) texture(u);
+    slots=[{unit:0,key:null},{unit:2,key:null}];
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);
-    gl.uniform1i(gl.getUniformLocation(pr,'uMask'),0); gl.uniform1i(gl.getUniformLocation(pr,'uLight'),1);
-    uMean=gl.getUniformLocation(pr,'uMean'); uRelight=gl.getUniformLocation(pr,'uRelight');
+    mask=program(FS_MASK,['uMask','uLight','uMean','uRelight']); use(mask); gl.uniform1i(mask.uLight,1);
+    skin=program(FS_SKIN,['uMap','uFrame','uStep','uSmooth']); use(skin); gl.uniform1i(skin.uMap,4); gl.uniform1i(skin.uFrame,3);
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
     gl.enable(gl.CULL_FACE);                       // triangles that fold over at strong yaw no longer paint over the near side
-    bound=null;
+    mapUploaded=false;
   }
+  let mapUploaded=false;
   init();
   // iOS drops WebGL contexts under memory pressure. Fall back to flat drawing until it comes back.
   cv.addEventListener('webglcontextlost',e=>{ e.preventDefault(); lost=true; });
@@ -778,57 +943,90 @@ const mesh=(()=>{
   // lips and brows under the mask do not print through as dark patches. Only the broad
   // light on the face survives, which is exactly the part worth copying onto the mask.
   const light=document.createElement('canvas'), lctx=light.getContext('2d',{willReadFrequently:true});
-  // Thumbnails share small textures. Only the mask in use gets a full-size one, so
+  // The frame for the skin pass, at half size: cheaper to upload, and the blur wants it soft anyway
+  const frame=document.createElement('canvas'), fctx=frame.getContext('2d');
+  // Thumbnails share small textures. The masks in use get full-size ones (two, for two faces), so
   // thirty masks do not mean thirty 4 MB canvases held in memory on a phone.
-  const small=new Map(); let big=null;
+  const small=new Map(), big=new Map();
   function maskTexture(m,size){
     const make=()=>{ const t=document.createElement('canvas'); t.width=t.height=size; m.tex(t.getContext('2d'),geom(UVL,size,size)); return t; };
     if(size<=256){ if(!small.has(m)) small.set(m,make()); return small.get(m); }
-    if(!big||big.m!==m) big={m,t:make()};
-    return big.t;
+    if(!big.has(m)){ if(big.size>=2) big.delete(big.keys().next().value); big.set(m,make()); }
+    return big.get(m);
   }
+  const setPos=L=>{ for(let i=0;i<468;i++){ const p=L[i]; pos[2*i]=p.x; pos[2*i+1]=p.y; } gl.bindBuffer(gl.ARRAY_BUFFER,posB); gl.bufferSubData(gl.ARRAY_BUFFER,0,pos); };
   return {
     canvas:cv,
     get lost(){ return lost; },
-    invalidate(m){ small.delete(m); if(big&&big.m===m) big=null; bound=null; },
-    render(faces,W,H,m,src,relight=.75){
+    invalidate(m){ small.delete(m); big.delete(m); for(const s of slots) if(s.key&&s.key.startsWith(m.id)) s.key=null; },
+    // items: [{L, m}] per face. m may be null for a face with no texture mask. beauty: 0 to 1.
+    render(items,W,H,src,{relight=.75,beauty=0}={}){
       // The mesh layer is capped at 960 px on the long side. A 1024 texture on a face a few hundred pixels tall stays sharp at that size.
       const k=Math.min(1,960/Math.max(W,H)), cw=Math.max(1,Math.round(W*k)), ch=Math.max(1,Math.round(H*k));
       if(cv.width!==cw||cv.height!==ch){ cv.width=cw; cv.height=ch; }
       gl.viewport(0,0,cw,ch); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
-      const size=W<=256?256:1024, key=m.id+size;
-      if(bound!==key){ gl.activeTexture(gl.TEXTURE0); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,maskTexture(m,size)); bound=key; }
+      if(beauty>0){
+        const fw=Math.min(720,W), fh=Math.max(1,Math.round(fw*H/W));
+        if(frame.width!==fw||frame.height!==fh){ frame.width=fw; frame.height=fh; }
+        fctx.drawImage(src,0,0,fw,fh); upload(3,frame);
+        if(!mapUploaded){ upload(4,beautyMap()); mapUploaded=true; }
+        use(skin); gl.uniform2f(skin.uStep,1.4/fw,1.4/fh); gl.uniform1f(skin.uSmooth,beauty);
+        for(const {L} of items){ setPos(L); gl.drawElements(gl.TRIANGLES,MESH.tri.length,gl.UNSIGNED_SHORT,0); }
+      }
+      const withMask=items.filter(it=>it.m&&it.m.tex);
+      if(!withMask.length) return;
+      const size=W<=256?256:1024;
       const lh=Math.max(1,Math.round(32*H/W));
       if(light.width!==32||light.height!==lh){ light.width=32; light.height=lh; }
-      lctx.drawImage(src,0,0,light.width,light.height);
-      gl.activeTexture(gl.TEXTURE1); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,light);
+      lctx.drawImage(src,0,0,light.width,light.height); upload(1,light);
       const px=lctx.getImageData(0,0,light.width,light.height).data;
-      gl.uniform1f(uRelight,relight);
-      for(const L of faces){
+      use(mask); gl.uniform1f(mask.uRelight,relight);
+      for(const {L,m} of withMask){
+        const key=m.id+size;
+        let slot=slots.find(s=>s.key===key);
+        if(!slot){ slot=slots.find(s=>!withMask.some(it=>it.m.id+size===s.key))||slots[0]; upload(slot.unit,maskTexture(m,size)); slot.key=key; }
+        gl.uniform1i(mask.uMask,slot.unit);
         let x0=1,y0=1,x1=0,y1=0;
-        for(let i=0;i<468;i++){ const p=L[i]; pos[2*i]=p.x; pos[2*i+1]=p.y; if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }
+        for(let i=0;i<468;i++){ const p=L[i]; if(p.x<x0)x0=p.x; if(p.x>x1)x1=p.x; if(p.y<y0)y0=p.y; if(p.y>y1)y1=p.y; }
         // mean brightness of the face box in the light map, clamped to the map so a face half out of frame cannot read off its edge
         const xa=Math.max(0,Math.floor(x0*light.width)), xb=Math.min(light.width,Math.ceil(x1*light.width));
         const ya=Math.max(0,Math.floor(y0*light.height)), yb=Math.min(light.height,Math.ceil(y1*light.height));
         let sum=0,n=0;
         for(let y=ya;y<yb;y++) for(let x=xa;x<xb;x++){ const q=4*(y*light.width+x); sum+=.299*px[q]+.587*px[q+1]+.114*px[q+2]; n++; }
-        gl.uniform1f(uMean,n?sum/n/255:.5);
-        gl.bindBuffer(gl.ARRAY_BUFFER,posB); gl.bufferSubData(gl.ARRAY_BUFFER,0,pos);
-        gl.drawElements(gl.TRIANGLES,MESH.tri.length,gl.UNSIGNED_SHORT,0);
+        gl.uniform1f(mask.uMean,n?sum/n/255:.5);
+        setPos(L); gl.drawElements(gl.TRIANGLES,MESH.tri.length,gl.UNSIGNED_SHORT,0);
       }
     }
   };
 })();
 
-// Draw mask m for every face onto c. src is whatever frame c already shows (video, photo, reference face).
-function composite(c,faces,W,H,m,src){
+// The skin map for Glow, painted once in UV space: red where skin can be smoothed (feathered, and never the
+// eyes, brows or lips), green on the cheeks for blush, blue on the lips for tint.
+let beautyMapCanvas=null;
+function beautyMap(){
+  if(beautyMapCanvas) return beautyMapCanvas;
+  const S=512, t=document.createElement('canvas'); t.width=t.height=S; const c=t.getContext('2d'), g=geom(UVL,S,S), {P,off,fw,ring,centroid}=g;
+  c.fillStyle='#f00'; c.shadowColor='#f00'; c.shadowBlur=S*.03;
+  c.beginPath(); addPath(c,inset(g,FACE_OVAL,.03)); addPath(c,ring(EYE_R,1.9)); addPath(c,ring(EYE_L,1.9)); addPath(c,ring(LIPS,1.25));
+  addPath(c,BROW_R.map(i=>off(P(i),.03,0)).concat(BROW_R.slice().reverse().map(i=>off(P(i),-.03,0))));
+  addPath(c,BROW_L.map(i=>off(P(i),.03,0)).concat(BROW_L.slice().reverse().map(i=>off(P(i),-.03,0))));
+  c.fill('evenodd'); c.shadowBlur=0;
+  c.globalCompositeOperation='lighter';
+  for(const i of [50,280]){ const p=off(P(i),-.01,0), gr=c.createRadialGradient(p.x,p.y,0,p.x,p.y,fw*.16); gr.addColorStop(0,'rgba(0,255,0,1)'); gr.addColorStop(1,'rgba(0,255,0,0)'); c.fillStyle=gr; c.fillRect(0,0,S,S); }
+  c.fillStyle='#00f'; c.shadowColor='#00f'; c.shadowBlur=S*.01; path(c,LIPS.map(P)); c.fill();
+  return beautyMapCanvas=t;
+}
+
+// Draw masks onto c for every face. masks is one mask for all faces, or an array with one per face.
+// src is whatever frame c already shows (video, photo, reference face). beauty is the Glow strength, 0 to 1.
+function composite(c,faces,W,H,masks,src,beauty=0){
   if(!faces.length) return;
-  if(m.under) for(const L of faces) m.under(c,geom(L,W,H));
-  if(m.tex){
-    if(mesh&&!mesh.lost){ mesh.render(faces,W,H,m,src); c.drawImage(mesh.canvas,0,0,W,H); }
-    else for(const L of faces) m.tex(c,geom(L,W,H));
-  }
-  if(m.over) for(const L of faces) m.over(c,geom(L,W,H));
+  const items=faces.map((L,i)=>({L,m:Array.isArray(masks)?masks[i]||masks[0]:masks}));
+  for(const {L,m} of items) if(m.under) m.under(c,geom(L,W,H));
+  if(mesh&&!mesh.lost){
+    if(beauty>0||items.some(it=>it.m.tex)){ mesh.render(items,W,H,src,{beauty}); c.drawImage(mesh.canvas,0,0,W,H); }
+  } else for(const {L,m} of items) if(m.tex) m.tex(c,geom(L,W,H));
+  for(const {L,m} of items) if(m.over) m.over(c,geom(L,W,H));
 }
 
 // Reference face drawn from the canonical landmarks. Used for the tray thumbnails and by tools/preview.mjs.
@@ -850,6 +1048,8 @@ let landmarker=null, mode='VIDEO';                  // the landmarker's running 
 let stream=null, facing='user', mirror=false, running=false, lastT=-1, result=null;
 let current=MASKS.find(m=>m.id==='surgical');
 let source=video;                                  // what draw() paints under the mask: the video, a frozen frame or a photo
+let glow=0; try{ glow=+localStorage.getItem('maskup.glow')||0; }catch{}
+let duo='match', swap=false;                       // two faces: same mask, or partner masks, and which face gets which
 let gen=0;                                         // camera generation. Every start bumps it, so a stale start or loop can tell it has been superseded
 // Detection jitters a pixel or two per frame. Ease each landmark towards its new
 // position instead of snapping, so the masks sit still on a still face.
@@ -949,13 +1149,27 @@ function loop(g=gen){
   }
   requestAnimationFrame(()=>loop(g));
 }
+// Which mask each face wears. Faces are ordered left to right in the frame, so the pair does not jump when detection reorders them.
+function masksFor(faces){
+  if(faces.length<2) return current;
+  const order=faces.map((L,i)=>({i,x:L.reduce((a,p)=>a+p.x,0)})).sort((a,b)=>a.x-b.x);
+  const pair=duo==='pair'?partner(current):current, out=[];
+  order.forEach((o,k)=>{ out[o.i]=(k===0)!==swap?current:pair; });
+  return out;
+}
 function draw(){
   const W=out.width,H=out.height;
   ctx.save(); if(mirror){ ctx.translate(W,0); ctx.scale(-1,1); }
   ctx.drawImage(source,0,0,W,H);
-  if(result) composite(ctx,result.faceLandmarks,W,H,current,source);
+  if(result){ composite(ctx,result.faceLandmarks,W,H,masksFor(result.faceLandmarks),source,glow); stage.classList.toggle('two',result.faceLandmarks.length>=2); }
   ctx.restore();
 }
+$('btnGlow').onclick=()=>{ glow=glow?0:1; try{ localStorage.setItem('maskup.glow',glow); }catch{} $('btnGlow').classList.toggle('on',!!glow); $('btnGlow').setAttribute('aria-pressed',!!glow); if(!running&&result) draw(); };
+$('btnGlow').classList.toggle('on',!!glow); $('btnGlow').setAttribute('aria-pressed',!!glow);
+for(const b of document.querySelectorAll('.duo button')) b.onclick=()=>{
+  if(b.dataset.duo==='swap') swap=!swap; else { duo=b.dataset.duo; for(const o of document.querySelectorAll('.duo button[data-duo]:not([data-duo=swap])')) o.classList.toggle('on',o===b); }
+  if(!running&&result) draw();
+};
 async function resumeLive(){
   await setMode('VIDEO'); source=video; mirror=facing==='user';
   stage.className='stage live'+(capture==='video'?' video':''); $('actions').classList.remove('show'); $('clip').removeAttribute('src');
@@ -1077,11 +1291,12 @@ function thumb(m,t=document.createElement('canvas'),badge=true){
   t.width=t.height=124; const c=t.getContext('2d');
   c.save(); c.translate(62-.5*VW,70-.5*VH);           // centre the face, leave headroom for ears
   c.drawImage(base,0,0); composite(c,[REF],VW,VH,m,base); c.restore();
+  if(badge&&m.id==='shuffle'){ c.fillStyle='#0E0C12'; c.beginPath(); c.arc(92,92,21,0,7); c.fill(); c.fillStyle='#5EE1FF'; c.beginPath(); c.arc(92,92,18,0,7); c.fill(); c.fillStyle='#0E0C12'; c.font='bold 26px system-ui,sans-serif'; c.textAlign='center'; c.textBaseline='middle'; c.fillText('?',92,93); }
   if(badge&&m.id==='custom'){ c.fillStyle='#0E0C12'; c.beginPath(); c.arc(92,92,21,0,7); c.fill(); c.fillStyle='#FF6B8B'; c.beginPath(); c.arc(92,92,18,0,7); c.fill(); c.fillStyle='#2A0A12'; c.fillRect(84,89,16,6); c.fillRect(89,84,6,16); }
   return t;
 }
 // Tray order, in groups: a thin rule between groups gives the thumb something to feel
-const GROUPS=[['none','custom'],['surgical','bandana','gaiter','balaclava'],['hero','masquerade','shades','eyepatch'],['clay','sheet','charcoal','gold','mud'],['skull','clown','vampire','camo','warpaint','freckles','gems'],['beard','moustache','cat','bear','bunny','antennae']];
+const GROUPS=[['none','custom','shuffle'],['surgical','bandana','gaiter','balaclava'],['hero','masquerade','shades','eyepatch'],['clay','sheet','charcoal','gold','mud'],['pumpkin','witch','zombie','mummy','devil','sugarskull'],['skull','clown','vampire','camo','warpaint','freckles','gems'],['beard','moustache','cat','bear','bunny','antennae']];
 const chips={};
 GROUPS.forEach((ids,k)=>{
   if(k) $('masks').append(Object.assign(document.createElement('div'),{className:'sep'}));
@@ -1091,10 +1306,18 @@ GROUPS.forEach((ids,k)=>{
     let t; try{ t=thumb(m); }catch(e){ console.error('thumbnail failed for',m.id,e); t=document.createElement('canvas'); }
     b.append(t,Object.assign(document.createElement('span'),{textContent:m.name}));
     if(m.id==='custom') b.setAttribute('aria-haspopup','dialog');
-    b.onclick=()=>m.id==='custom'?openSheet():selectMask(m); $('masks').append(b); chips[m.id]=b;
+    b.onclick=()=>m.id==='custom'?openSheet():m.id==='shuffle'?shuffle():selectMask(m); $('masks').append(b); chips[m.id]=b;
   }
 });
 selectMask(current);
+// Surprise me: spin through a few masks and land on one
+let spinning=false;
+function shuffle(){
+  if(spinning) return; spinning=true;
+  const pool=MASKS.filter(m=>m.tex||m.over).filter(m=>m.id!=='custom'||spec);
+  const picks=Array.from({length:9},()=>pool[Math.floor(Math.random()*pool.length)]);
+  picks.forEach((m,i)=>setTimeout(()=>{ selectMask(m); if(i===picks.length-1) spinning=false; },60+i*i*14));
+}
 
 // ---------- Custom mask sheet ----------
 const CUSTOM=MASKS.find(m=>m.id==='custom');
@@ -1106,8 +1329,9 @@ function openSheet(){
   draft=spec?{...spec,colors:[...spec.colors]}:null;
   $('sheetTitle').textContent=draft?'Your mask':'Make a mask from a photo';
   $('result').hidden=!draft; $('btnUseCustom').disabled=!draft; $('customMsg').textContent=draft?'Your custom mask. Adjust it, or choose a new photo.':'';
-  $('imgUrl').value=''; $('btnFetch').disabled=true; if(draft) showDraft(); $('sheet').hidden=false;
-  $('btnPick').focus();
+  $('imgUrl').value=''; $('btnFetch').disabled=true; if(draft) showDraft();
+  $('btnSnap').hidden=!(stream&&video.videoWidth);
+  $('sheet').hidden=false; $('btnPick').focus();
 }
 async function closeSheet(){
   if($('sheet').hidden) return;
@@ -1121,8 +1345,9 @@ function showDraft(){
   const was=spec; spec=draft; mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,$('customPreview'),false); spec=was; mesh&&mesh.invalidate(CUSTOM);
 }
 async function fromImage(img){
-  const r=Math.min(1,512/Math.max(img.naturalWidth,img.naturalHeight));
-  const cv=document.createElement('canvas'); cv.width=Math.round(img.naturalWidth*r); cv.height=Math.round(img.naturalHeight*r); cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+  const iw=img.naturalWidth||img.videoWidth||img.width, ih=img.naturalHeight||img.videoHeight||img.height;
+  const r=Math.min(1,512/Math.max(iw,ih));
+  const cv=document.createElement('canvas'); cv.width=Math.round(iw*r); cv.height=Math.round(ih*r); cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
   $('customMsg').textContent='Reading the photo…';
   const detect=async c=>{ if(!landmarker) return null; await setMode('IMAGE'); return landmarker.detect(c).faceLandmarks[0]||null; };
   const a=await analyse(cv,detect); window.__lastAnalysis=a;
@@ -1132,6 +1357,8 @@ async function fromImage(img){
     :'Built from the photo. Adjust it if you like, then tap Use this mask.';
 }
 $('btnPick').onclick=()=>$('fileCustom').click();
+// Hold a real mask up to the camera. The frame is read straight off the live video.
+$('btnSnap').onclick=async()=>{ if(!stream||!video.videoWidth) return; try{ await fromImage(video); }catch(err){ $('customMsg').textContent=photoError(err); } };
 $('fileCustom').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; if(!f) return; try{ await fromImage(await loadImage(f)); }catch(err){ $('customMsg').textContent=photoError(err); } };
 $('imgUrl').oninput=()=>{ $('btnFetch').disabled=!$('imgUrl').value.trim(); };
 $('btnFetch').onclick=async()=>{

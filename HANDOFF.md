@@ -34,6 +34,9 @@ Netlify drop works too. Any static host over HTTPS is fine.
 - **Camera:** asks for 1080x1920 in the screen's orientation. Some phones read width and height in sensor orientation and hand a portrait screen a landscape frame, so `startCamera` checks `videoWidth > videoHeight` and asks once more with the two swapped. Every start bumps `gen`, and each `await` inside checks it, so a double tap on Flip cannot leak a stream or start two loops. `stopCamera` also bumps it. The track's `onended` and `visibilitychange` restart or reset the camera when iOS takes it away (a call, a lock, another app). `video.onresize` follows a rotation. `mirror` is its own flag rather than being read off `facing`, so a still photo does not un-mirror the next camera start.
 - **Running mode:** `mode` tracks the landmarker's running mode (the object does not expose it) and `setMode()` is the only thing that changes it. `resumeLive()` owns the return to the live state from frozen, clip or the custom sheet, and always goes through `setMode('VIDEO')`. `loop()` is wrapped in try/catch: a throw stops the camera and returns to the landing screen with a message, instead of leaving a dead loop under a live shutter.
 - **Video:** the Photo/Video switch above the shutter. In video mode the shutter starts and stops a `MediaRecorder` on `recCanvas.captureStream(30)`, where `recCanvas` is the visible crop of the output canvas redrawn every frame (`recordFrame`), plus the microphone asked for on first use. The live loop keeps running, so the tray works mid-clip. Safari records MP4, Chrome WebM. Capped at 60 s. The clip plays back in `#clip` over the stage. Flip, the mode switch and the custom sheet are disabled while recording.
+- **Glow:** a toggle top right, remembered in `localStorage`. A second WebGL program (`FS_SKIN`) runs before the mask pass: it samples the frame at up to 720 px wide and applies a surface blur (nearby pixels count only when close in colour, so pores go and edges stay), a slight lift, blush and a lip tint, each weighted by a channel of `beautyMap()`, a UV texture painted once: red for skin (feathered, minus eyes, brows and lips), green on the cheeks, blue on the lips. Works under any mask and with no mask.
+- **Duo:** when two faces are detected the stage gets class `two` and a Match / Pair / Swap control appears. `masksFor()` orders faces left to right by mean x and hands the second face `partner(current)` from `PAIRS` when Pair is on, swapped if Swap is on. The renderer keeps two full-size mask textures in two texture units so both masks draw every frame without re-uploading.
+- **Surprise me:** a chip that runs `shuffle()`, nine quick selections slowing to a stop.
 - **Sharing:** `deliver()` uses `navigator.share` with a file where the browser supports it (`canShareFiles` is tested once at startup and picks the button label, Share or Save), else a download link. A cancelled share sheet (`AbortError`) does nothing rather than falling through to a download.
 - **Rendering:** one `<canvas id="out">`. Each frame draws the video, then `composite()` draws each face's mask. Front camera is mirrored with a canvas transform (`translate(W,0); scale(-1,1)`) so the saved image matches the preview. Back camera is not mirrored.
 - **Masks:** each entry in `MASKS` has up to three drawing functions, all taking `(ctx, g)` where `g = geom(landmarks, W, H)`.
@@ -72,12 +75,13 @@ Masks, in tray order:
 
 - Originals: Surgical, Hero, Masquerade, Cat, Shades, Bandana.
 - Full covers: Balaclava, Gaiter, Clay, Sheet, Charcoal, Gold, Mud (with cucumber slices), Skull, Clown.
+- Halloween: Pumpkin, Witch, Zombie, Mummy, Devil, Sugar skull.
 - Face paint: Vampire, Camo, Game day, Freckles, Gems.
 - Hair: Beard, Moustache.
 - Off the face: Eye patch, Bear ears, Bunny ears, Antennae.
 - Custom, see below.
 
-The tray is built from `GROUPS` in the picker, not from the order of `MASKS`: None and Custom first, then face coverings, eye masks, skin masks, face paint, hair and headwear, with a thin rule between groups.
+The tray is built from `GROUPS` in the picker, not from the order of `MASKS`: None, Custom and Surprise me first, then face coverings, eye masks, skin masks, Halloween, face paint, hair and headwear, with a thin rule between groups.
 
 All original designs, no branded or copyrighted characters. Keep it that way.
 
@@ -85,6 +89,7 @@ All original designs, no branded or copyrighted characters. Keep it that way.
 
 The last chip opens a sheet where the person picks a picture (file, or a link the site allows cross-origin) and gets a mask built from it. It is deliberately a cousin of the picture, not a copy: nothing from the image is painted onto the face.
 
+- Three ways in: choose a photo, paste a link, or Snap the camera (shown when the camera is on: it reads the current frame off the live video, so you can hold a real mask up to it).
 - `analyse(img, detect)` runs face detection on the picture. If a face is found it tests eight landmarks in each of six regions (forehead, eyes, nose, cheeks, mouth, chin) against a YCbCr skin box. Regions where at least half the points are not skin count as covered, and the pattern of covered regions picks the shape: full face (with a mouth hole if the mouth is uncovered), lower face, or eyes. Colours come from the non-skin pixels at the remaining landmarks, skipping eyes, brows and lips, quantised and then merged so shades of one colour count as one colour. One dominant colour means plain, otherwise dots or blobs. With no face it takes the colours of the whole picture and defaults to a full cover.
 - `drawSpec(ctx, g, spec)` is the parametric mask: `{cover, mouth, pattern, colors[3]}`. Shape, pattern and the three colours are editable in the sheet. The spec is saved in `localStorage` under `maskup.custom`.
 - Known limits: olive and tan sit inside the skin box, so camouflage reads as partly skin. Pasted links only work when the host sends CORS headers, which most image hosts do not. The message tells the person to save the image and choose it instead.
@@ -133,12 +138,11 @@ The first live test on an iPhone showed the flat version. The mesh version has b
 
 ## Backlog
 
-- A beauty base layer (smooth, glow, blush) that stacks under any mask. The most used filter category everywhere, and absent here.
-- Two-person masks already work. Matching and opposite pairs, and a swap, would make the duo case worth sharing.
-- A randomiser ("spin for a mask") and seasonal packs, starting with Halloween.
 - Video: a hold-to-record gesture on the shutter, and a way to trim the clip.
-- More masks and colour variants, tap a selected mask again to cycle colours. Ideas from the art review: a luchador, a chrome half-plate, a knit beanie.
-- Custom: point the camera at a mask you own, then adjust it live, instead of a form.
+- Glow strength slider, and a whitening or eye-brighten option.
+- Duo: per-face mask choice rather than pairs, and three or more faces.
+- More seasonal packs (Christmas, Valentine's, Pride, football) and colour variants, tap a selected mask again to cycle colours. Ideas from the art review: a luchador, a chrome half-plate, a knit beanie.
+- Custom: adjust size and position live on the face after snapping.
 - Native iOS version with ARKit face tracking if Mahmoud wants true depth-sensor fitting. Note for that conversation: LiDAR is rear-facing and not available to web pages, and TikTok-style filters use camera face mesh, not LiDAR, so the web version is already the same class of effect.
 
 ## Prior version
