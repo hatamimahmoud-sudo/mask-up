@@ -159,7 +159,7 @@
     <div class="result" id="result" hidden>
       <canvas id="customPreview" width="124" height="124"></canvas>
       <div class="opts">
-        <label>Shape <select id="optCover"><option value="full">Full face</option><option value="lower">Lower face</option><option value="eyes">Eyes</option></select></label>
+        <label>Shape <select id="optCover"><option value="auto" hidden>As found</option><option value="full">Full face</option><option value="lower">Lower face</option><option value="eyes">Eyes</option></select></label>
         <label>Pattern <select id="optPattern"><option value="plain">Plain</option><option value="dots">Dots</option><option value="stripes">Stripes</option><option value="blobs">Blobs</option><option value="knit">Knit</option></select></label>
         <label>Colours <span class="swatches"><input type="color" id="col0" aria-label="Main colour"><input type="color" id="col1" aria-label="Pattern colour"><input type="color" id="col2" aria-label="Second pattern colour"></span></label>
       </div>
@@ -792,11 +792,23 @@ const partner=m=>MASKS.find(x=>x.id===(PAIRS[m.id]||m.id))||m;
 // Built from a spec rather than drawn by hand: a shape, up to three colours and a pattern.
 // The spec comes from analysing a picture the person chose (see analyse() below), or their edits.
 const DEFAULT_SPEC={cover:'lower',pattern:'plain',colors:['#7CC1DE','#F6F2EA','#3A3545'],mouth:true};
-const okSpec=x=>x&&typeof x==='object'&&['full','lower','eyes'].includes(x.cover)&&['plain','dots','stripes','blobs','knit'].includes(x.pattern)
+const okSpec=x=>x&&typeof x==='object'&&['full','lower','eyes','auto'].includes(x.cover)&&['plain','dots','stripes','blobs','knit'].includes(x.pattern)
   &&Array.isArray(x.colors)&&x.colors.length===3&&x.colors.every(c=>/^#[0-9a-f]{6}$/i.test(c));
-let spec=null; try{ const x=JSON.parse(localStorage.getItem('maskup.custom')); if(okSpec(x)) spec={cover:x.cover,pattern:x.pattern,mouth:!!x.mouth,colors:x.colors}; }catch{}
+let spec=null; try{ const x=JSON.parse(localStorage.getItem('maskup.custom')); if(okSpec(x)) spec={cover:x.cover,pattern:x.pattern,mouth:!!x.mouth,colors:x.colors};
+  if(spec&&x.mode==='lift'&&typeof x.lift==='string'&&x.lift.startsWith('data:image/')){ spec.mode='lift'; const im=new Image(); im.onload=()=>{ spec.lift=im; window.dispatchEvent(new Event('customready')); }; im.src=x.lift; } }catch{}
 function drawSpec(c,g,sp){
   const {P,off,fw}=g, r=rng(21);
+  if(sp.mode==='lift'&&sp.lift){
+    // the mask copied from the photo, already in UV space. A chosen shape clips it, Auto keeps what was found.
+    const S=c.canvas.width; c.drawImage(sp.lift,0,0,S,S);
+    if(sp.cover&&sp.cover!=='auto'){
+      c.globalCompositeOperation='destination-in'; c.fillStyle='#000';
+      if(sp.cover==='full') coverPath(c,g,{edge:0}); else if(sp.cover==='eyes') path(c,eyeShape(g,.06,false));
+      else { const J=inset(g,JAW,.02), lC=off(J[J.length-1],-.05,0), rC=off(J[0],-.05,0), t=off(P(197),.03,0); c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); }
+      c.fill(); c.globalCompositeOperation='source-over';
+    }
+    return;
+  }
   let region;
   if(sp.cover==='full') region=()=>coverPath(c,g,{edge:.03,eyes:1.35,lips:sp.mouth?1.12:0,nostrils:true});
   else if(sp.cover==='eyes') region=()=>{ path(c,eyeShape(g,.06,false)); addPath(c,g.ring(EYE_R,1.6)); addPath(c,g.ring(EYE_L,1.6)); };
@@ -814,47 +826,134 @@ function drawSpec(c,g,sp){
 }
 MASKS.push({id:'custom',name:'Custom',tex(c,g){ drawSpec(c,g,spec||DEFAULT_SPEC); }});
 
-// Read a picture: is there a face, which parts of it are covered by something that is not skin,
-// and what colours is that something. Returns a spec plus what it found.
-// Skin test is the usual YCbCr box, which is broad enough to hold across skin tones.
+// Unwrap the face in a photo into UV space: each of the 898 mesh triangles is copied from where it sits in
+// the photo to where it sits on the mask texture. What comes out is that person's face, flattened, in the
+// same space the masks are painted in. Then keep only the pixels that are not that person's skin, with the
+// skin sampled from the neck below the chin (so a sheet mask close to skin colour still counts), soften the
+// edge, punch the eyes and mouth out, and flatten the photo's own lighting a little so the live re-light can
+// do its job. Returns the texture and how much of the face it covers.
+function liftMask(photo,L){
+  const S=512, W=photo.width, H=photo.height;
+  const lift=document.createElement('canvas'); lift.width=lift.height=S; const c=lift.getContext('2d',{willReadFrequently:true});
+  const P=i=>({x:L[i].x*W,y:L[i].y*H}), U=i=>({x:UVL[i].x*S,y:UVL[i].y*S});
+  for(let t=0;t<MESH.tri.length;t+=3){
+    const [i,j,k]=[MESH.tri[t],MESH.tri[t+1],MESH.tri[t+2]], p0=P(i),p1=P(j),p2=P(k), u0=U(i),u1=U(j),u2=U(k);
+    const d=(p1.x-p0.x)*(p2.y-p0.y)-(p2.x-p0.x)*(p1.y-p0.y); if(Math.abs(d)<1e-6) continue;
+    const a=((u1.x-u0.x)*(p2.y-p0.y)-(u2.x-u0.x)*(p1.y-p0.y))/d, b=((u1.y-u0.y)*(p2.y-p0.y)-(u2.y-u0.y)*(p1.y-p0.y))/d;
+    const cc=((u2.x-u0.x)*(p1.x-p0.x)-(u1.x-u0.x)*(p2.x-p0.x))/d, dd=((u2.y-u0.y)*(p1.x-p0.x)-(u1.y-u0.y)*(p2.x-p0.x))/d;
+    const cx=(u0.x+u1.x+u2.x)/3, cy=(u0.y+u1.y+u2.y)/3, grow=q=>({x:q.x+Math.sign(q.x-cx),y:q.y+Math.sign(q.y-cy)});
+    c.save(); path(c,[u0,u1,u2].map(grow)); c.clip(); c.setTransform(a,b,cc,dd,u0.x-a*p0.x-cc*p0.y,u0.y-b*p0.x-dd*p0.y); c.drawImage(photo,0,0); c.restore();
+  }
+  // that person's skin: the neck, when it is in the picture and looks like skin, else the skin-like part of the face
+  const g=geom(L,W,H), skin=([r,gg,b])=>{ const cb=128-.169*r-.331*gg+.5*b, cr=128+.5*r-.419*gg-.081*b; return cb>77&&cb<127&&cr>133&&cr<173; };
+  const px=photo.getContext('2d',{willReadFrequently:true}).getImageData(0,0,W,H).data;
+  const at=(x,y)=>{ x=Math.round(x); y=Math.round(y); if(x<0||y<0||x>=W||y>=H) return null; const q=4*(y*W+x); return [px[q],px[q+1],px[q+2]]; };
+  let neck=[]; for(const u of [-.09,-.15,-.21]) for(const v of [-.12,0,.12]){ const p=g.off(g.P(152),u,v), col=at(p.x,p.y); if(col&&skin(col)) neck.push(col); }
+  const lp=c.getImageData(0,0,S,S).data;
+  let ref=null;
+  if(neck.length>=4) ref=neck.reduce((a,cl)=>a.map((v,i)=>v+cl[i]/neck.length),[0,0,0]);
+  else { const f=[]; for(let y=0;y<S;y+=8) for(let x=0;x<S;x+=8){ const q=4*(y*S+x); if(lp[q+3]&&skin([lp[q],lp[q+1],lp[q+2]])) f.push([lp[q],lp[q+1],lp[q+2]]); } if(f.length>40) ref=f.reduce((a,cl)=>a.map((v,i)=>v+cl[i]/f.length),[0,0,0]); }
+  const lum=cl=>(cl[0]+cl[1]+cl[2])/3, chroma=cl=>{ const l=lum(cl)||1; return cl.map(v=>v/l*128); }, sat=cl=>{ const m=Math.max(...cl)||1; return (m-Math.min(...cl))/m; };
+  const rc=ref?chroma(ref):null, rl=ref?lum(ref):0, cdist=(a,b)=>Math.hypot(...chroma(a).map((v,i)=>v-chroma(b)[i]));
+  // the face as a whole against the neck: a sheet or clay mask close to skin colour is still flatter and
+  // less saturated than skin, and averaging the whole face makes that visible where single pixels cannot
+  const N=96, cells=[];
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){ const q=4*(Math.round((y+.5)*S/N)*S+Math.round((x+.5)*S/N)); cells.push(lp[q+3]?[lp[q],lp[q+1],lp[q+2]]:null); }
+  const faceSkin=cells.filter(cl=>cl&&skin(cl)), faceMean=faceSkin.length?faceSkin.reduce((a,cl)=>a.map((v,i)=>v+cl[i]/faceSkin.length),[0,0,0]):null;
+  const wholeFace=!!(ref&&faceMean&&faceSkin.length>cells.length*.3&&(cdist(faceMean,ref)>11||sat(ref)-sat(faceMean)>.1));
+  const isMask=cl=>!ref?!skin(cl):wholeFace?(cdist(cl,faceMean)<34||cdist(cl,ref)>22):(cdist(cl,ref)>22||Math.abs(lum(cl)-rl)>60);
+  const score=new Float32Array(N*N);
+  cells.forEach((cl,i)=>{ score[i]=cl&&isMask(cl)?1:0; });
+  // keep the biggest connected patch: the mask, not the hair or the wall at the temples
+  const seen=new Uint8Array(N*N); let best=[];
+  for(let i=0;i<N*N;i++){ if(!score[i]||seen[i]) continue; const comp=[], stack=[i]; seen[i]=1;
+    while(stack.length){ const j=stack.pop(); comp.push(j); const x=j%N, y=(j-x)/N;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const xx=x+dx,yy=y+dy; if(xx<0||yy<0||xx>=N||yy>=N) continue; const k=yy*N+xx; if(score[k]&&!seen[k]){ seen[k]=1; stack.push(k); } } }
+    if(comp.length>best.length) best=comp; }
+  const kept=new Float32Array(N*N); for(const j of best) kept[j]=1;
+  const blur=src=>{ const o=new Float32Array(N*N); for(let y=0;y<N;y++) for(let x=0;x<N;x++){ let s=0,n=0; for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++){ const yy=y+dy,xx=x+dx; if(yy<0||xx<0||yy>=N||xx>=N) continue; s+=src[yy*N+xx]; n++; } o[y*N+x]=s/n; } return o; };
+  let sc=blur(blur(kept)); let covered=0; for(let i=0;i<sc.length;i++) if(sc[i]>.5) covered++;
+  const debug={ref:ref&&ref.map(Math.round),faceMean:faceMean&&faceMean.map(Math.round),cdist:ref&&faceMean?+cdist(faceMean,ref).toFixed(1):null,satRef:ref?+sat(ref).toFixed(2):null,satFace:faceMean?+sat(faceMean).toFixed(2):null,wholeFace,faceSkinShare:+(faceSkin.length/cells.length).toFixed(2)};
+  const amap=document.createElement('canvas'); amap.width=amap.height=N; const ac=amap.getContext('2d'), aid=ac.createImageData(N,N);
+  for(let i=0;i<sc.length;i++){ const v=Math.max(0,Math.min(1,(sc[i]-.35)/.3)); aid.data[4*i]=aid.data[4*i+1]=aid.data[4*i+2]=255; aid.data[4*i+3]=Math.round(v*255); }
+  ac.putImageData(aid,0,0);
+  // flatten the photo's lighting: divide by a soft copy of its own brightness
+  const ll=document.createElement('canvas'); ll.width=ll.height=16; const lc=ll.getContext('2d',{willReadFrequently:true}); lc.drawImage(lift,0,0,16,16); const lpx=lc.getImageData(0,0,16,16).data;
+  let mean=0,mn=0; for(let i=0;i<256;i++) if(lpx[4*i+3]>128){ mean+=(lpx[4*i]+lpx[4*i+1]+lpx[4*i+2])/3; mn++; } mean=mn?mean/mn:128;
+  const out=c.getImageData(0,0,S,S);
+  for(let y=0;y<S;y++) for(let x=0;x<S;x++){ const q=4*(y*S+x); if(!out.data[q+3]) continue; const li=4*(Math.floor(y/32)*16+Math.floor(x/32)); const local=(lpx[li]+lpx[li+1]+lpx[li+2])/3||mean;
+    const f=Math.max(.75,Math.min(1.3,Math.sqrt(mean/local))); out.data[q]=Math.min(255,out.data[q]*f); out.data[q+1]=Math.min(255,out.data[q+1]*f); out.data[q+2]=Math.min(255,out.data[q+2]*f); }
+  c.putImageData(out,0,0);
+  c.globalCompositeOperation='destination-in'; c.imageSmoothingEnabled=true; c.drawImage(amap,0,0,S,S);
+  // never the eyes or the mouth, and keep inside the face
+  const ug=geom(UVL,S,S);
+  c.globalCompositeOperation='destination-out'; c.fillStyle='#000'; for(const E of [EYE_R,EYE_L]){ path(c,ug.ring(E,1.35)); c.fill(); } path(c,ug.ring(LIPS,1.1)); c.fill();
+  c.globalCompositeOperation='destination-in'; path(c,inset(ug,FACE_OVAL,.02)); c.fill();
+  c.globalCompositeOperation='source-over';
+  return {canvas:lift,coverage:covered/sc.length,refFound:!!ref,debug};
+}
+
+// Read a picture: is there a face, which parts of it are covered, and what colour is the covering.
+// Two routes. If enough of the face is not skin-coloured, the mask is that: its colour is the dominant
+// non-skin colour and its shape comes from which regions are non-skin. If almost all of the face reads
+// as skin, the mask may still be there but close to skin colour (a sheet mask, a clay mask in beige),
+// so the dominant colour of the face itself becomes the mask colour, as a full cover, for the person to
+// adjust. The skin test is the usual YCbCr box, which is broad enough to hold across skin tones.
 async function analyse(img,detect){
   const W=img.width,H=img.height, cv=document.createElement('canvas'); cv.width=W; cv.height=H;
   const x=cv.getContext('2d',{willReadFrequently:true}); x.drawImage(img,0,0);
   const px=x.getImageData(0,0,W,H).data;
   const at=(u,v)=>{ const i=4*(Math.min(H-1,Math.max(0,Math.round(v*H)))*W+Math.min(W-1,Math.max(0,Math.round(u*W)))); return [px[i],px[i+1],px[i+2]]; };
   const skin=([r,g,b])=>{ const cb=128-.169*r-.331*g+.5*b, cr=128+.5*r-.419*g-.081*b; return cb>77&&cb<127&&cr>133&&cr<173; };
+  const lum=c=>(c[0]+c[1]+c[2])/3, chroma=c=>{ const l=lum(c)||1; return c.map(v=>v/l*128); };
+  const distinct=(a,b)=>Math.hypot(...chroma(a).map((v,i)=>v-chroma(b)[i]))>40 || Math.abs(lum(a)-lum(b))>110;
+  // cluster a list of colours into up to n, biggest first, merging shades of one colour
+  const cluster=(list,n=3)=>{
+    const bins=new Map();
+    for(const [r,g,b] of list){ const k=((r>>4)<<8)|((g>>4)<<4)|(b>>4); const e=bins.get(k)||{n:0,r:0,g:0,b:0}; e.n++; e.r+=r; e.g+=g; e.b+=b; bins.set(k,e); }
+    const colors=[], counts=[];
+    for(const e of [...bins.values()].sort((a,b)=>b.n-a.n)){ const c=[e.r/e.n,e.g/e.n,e.b/e.n]; const k=colors.findIndex(d=>!distinct(c,d));
+      if(k<0){ if(colors.length<n){ colors.push(c); counts.push(e.n); } } else counts[k]+=e.n; }
+    return {colors,counts};
+  };
   let L=null; try{ L=await detect(cv); }catch{}
-  const samples=[]; let cover='full', mouth=true;
-  const REG={forehead:[10,109,338,67,297,151,108,337],eyes:[105,334,117,346,66,296,229,449],nose:[4,195,197,5],cheeks:[50,280,205,425,187,411,101,330],mouth:[0,17,61,291,37,267,84,314],chin:[152,175,199,200,208,428]};
+  let lift=null; if(L){ try{ lift=liftMask(cv,L); }catch(e){ console.error('lift failed',e); } }
+  const REG={forehead:[151,108,337,9,107,336,69,299],eyes:[105,334,117,346,66,296,229,449],nose:[4,195,197,5],cheeks:[50,280,205,425,187,411,101,330],mouth:[0,17,61,291,37,267,84,314],chin:[152,175,199,200,208,428]};
+  let cover='full', mouth=true, colors=[], counts=[], samples=[], skinlike=false, maskFound=true;
   if(L){
+    // colours come from the inside of the face only: not the outline (hair, background), not eyes, brows or lips
+    const skip=new Set([...FACE_OVAL,71,68,104,69,108,151,337,299,333,298,301,368,264,447,366,401,435,367,364,394,395,369,396,175,171,140,170,169,135,138,215,177,137,227,34,139,
+      ...EYE_R,...EYE_L,...BROW_R,...BROW_L,...LIPS,468,469,470,471,472,473,474,475,476,477]);
+    L.forEach((p,i)=>{ if(!skip.has(i)) samples.push(at(p.x,p.y)); });
+    const nonSkin=samples.filter(c=>!skin(c));
     const covered={};
     for(const [k,ids] of Object.entries(REG)) covered[k]=ids.filter(i=>!skin(at(L[i].x,L[i].y))).length/ids.length>=.5;
     const {forehead,eyes,cheeks,mouth:m,chin}=covered;
-    if(forehead&&cheeks&&chin){ cover='full'; mouth=!m; }
-    else if(eyes&&!cheeks&&!chin) cover='eyes';
-    else if(cheeks||chin||m) cover='lower';
-    // colours come from the face only, skipping eyes, brows and lips, which are never mask
-    const skip=new Set([...EYE_R,...EYE_L,...BROW_R,...BROW_L,...LIPS,468,469,470,471,472,473,474,475,476,477]);
-    L.forEach((p,i)=>{ if(skip.has(i)) return; const c=at(p.x,p.y); if(!skin(c)) samples.push(c); });
+    if(nonSkin.length>=samples.length*.2){
+      ({colors,counts}=cluster(nonSkin));
+      if(forehead&&cheeks&&chin){ cover='full'; mouth=!m; }
+      else if(eyes&&!cheeks&&!chin) cover='eyes';
+      else if(cheeks||chin||m) cover='lower';
+    }else{
+      // the face is one colour and that colour is skin-like: a sheet or clay mask near skin colour, or no mask
+      skinlike=true; cover='full'; mouth=true;
+      const all=cluster(samples,1), acc=cluster(nonSkin,2);
+      colors=[all.colors[0],...acc.colors]; counts=[all.counts[0],...acc.counts];
+      maskFound=nonSkin.length>=12;
+    }
   } else {
     for(let j=0;j<48;j++) for(let i=0;i<48;i++) samples.push(at((i+.5)/48,(j+.5)/48));
+    ({colors,counts}=cluster(samples));
   }
-  const maskFound=!L||samples.length>=24;
-  const bins=new Map();
-  for(const [r,g,b] of samples){ const k=((r>>4)<<8)|((g>>4)<<4)|(b>>4); const e=bins.get(k)||{n:0,r:0,g:0,b:0}; e.n++; e.r+=r; e.g+=g; e.b+=b; bins.set(k,e); }
-  const ranked=[...bins.values()].sort((a,b)=>b.n-a.n);
-  const lum=c=>(c[0]+c[1]+c[2])/3, chroma=c=>{ const l=lum(c)||1; return c.map(v=>v/l*128); };
-  const distinct=(a,b)=>Math.hypot(...chroma(a).map((v,i)=>v-chroma(b)[i]))>40 || Math.abs(lum(a)-lum(b))>110;
-  const colors=[], counts=[];
-  for(const e of ranked){ const c=[e.r/e.n,e.g/e.n,e.b/e.n]; const k=colors.findIndex(d=>!distinct(c,d));
-    if(k<0){ if(colors.length<3){ colors.push(c); counts.push(e.n); } } else counts[k]+=e.n; }
   if(!colors.length) colors.push([124,193,222]);
   while(colors.length<3) colors.push(colors[colors.length-1].map(v=>Math.min(255,v*.7+70)));
-  const top=samples.length?counts[0]/samples.length:1, second=samples.length?(counts[1]||0)/samples.length:0;
-  const pattern=top>.8||second<.08?'plain':(second<.3?'dots':'blobs');
-  const debug={covered:L?Object.fromEntries(Object.entries(REG).map(([k,ids])=>[k,ids.filter(i=>!skin(at(L[i].x,L[i].y))).length])):null,samples:samples.length,top,second};
+  const total=counts.reduce((a,b)=>a+b,0)||1, second=(counts[1]||0)/total;
+  const pattern=second<.08?'plain':(second<.3?'dots':'blobs');
   const hex=c=>'#'+c.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
-  return {spec:{cover,mouth,pattern,colors:colors.map(hex)},faceFound:!!L,maskFound,debug};
+  const debug={covered:L?Object.fromEntries(Object.entries(REG).map(([k,ids])=>[k,ids.filter(i=>!skin(at(L[i].x,L[i].y))).length])):null,samples:samples.length,second,skinlike};
+  const spec={cover,mouth,pattern,colors:colors.map(hex)};
+  if(lift&&lift.coverage>=.06){ spec.mode='lift'; spec.cover='auto'; spec.lift=lift.canvas; maskFound=true; skinlike=false; }
+  return {spec,faceFound:!!L,maskFound,skinlike,lifted:!!spec.lift,coverage:lift?lift.coverage:0,debug:{...debug,coverage:lift?lift.coverage:null,lift:lift?lift.debug:null}};
 }
 
 // ---------- Mesh renderer ----------
@@ -1326,7 +1425,7 @@ function openSheet(){
   if(!$('sheet').hidden) return;
   if(recording){ if(spec) selectMask(CUSTOM); else say('Stop recording first to make a custom mask.'); return; }
   wasRunning=running; running=false;                 // detection runs in IMAGE mode while the sheet is open
-  draft=spec?{...spec,colors:[...spec.colors]}:null;
+  draft=spec?{...spec,colors:[...spec.colors]}:null; if(draft&&draft.mode==='lift'&&!draft.lift) draft=null;
   $('sheetTitle').textContent=draft?'Your mask':'Make a mask from a photo';
   $('result').hidden=!draft; $('btnUseCustom').disabled=!draft; $('customMsg').textContent=draft?'Your custom mask. Adjust it, or choose a new photo.':'';
   $('imgUrl').value=''; $('btnFetch').disabled=true; if(draft) showDraft();
@@ -1339,7 +1438,10 @@ async function closeSheet(){
   if(wasRunning&&stream) await resumeLive();
 }
 function showDraft(){
+  const lifted=draft.mode==='lift'&&draft.lift;
+  document.querySelector('#optCover option[value=auto]').hidden=!lifted;
   $('optCover').value=draft.cover; $('optPattern').value=draft.pattern;
+  $('optPattern').closest('label').hidden=!!lifted; document.querySelector('.swatches').closest('label').hidden=!!lifted;
   draft.colors.forEach((c,i)=>$('col'+i).value=c);
   $('col1').hidden=['plain','knit'].includes(draft.pattern); $('col2').hidden=draft.pattern!=='blobs';
   const was=spec; spec=draft; mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,$('customPreview'),false); spec=was; mesh&&mesh.invalidate(CUSTOM);
@@ -1352,7 +1454,9 @@ async function fromImage(img){
   const detect=async c=>{ if(!landmarker) return null; await setMode('IMAGE'); return landmarker.detect(c).faceLandmarks[0]||null; };
   const a=await analyse(cv,detect); window.__lastAnalysis=a;
   draft=a.spec; $('result').hidden=false; $('btnUseCustom').disabled=false; showDraft();
-  $('customMsg').textContent=!a.faceFound?'No face in that photo, so its colours went on a full-face mask. Change the shape if you like.'
+  $('customMsg').textContent=a.lifted?'Copied the mask off that face. Use it as found, or pick a shape to trim it.'
+    :!a.faceFound?'No face in that photo, so its colours went on a full-face mask. Change the shape if you like.'
+    :a.skinlike?'That is close to skin colour, so it could be a sheet mask or no mask at all. Change the colours or shape if it is wrong.'
     :!a.maskFound?'Found a face but no mask on it, so the colours came from the photo. Pick a shape.'
     :'Built from the photo. Adjust it if you like, then tap Use this mask.';
 }
@@ -1384,11 +1488,14 @@ $('btnFetch').onclick=async()=>{
 };
 for(const id of ['optCover','optPattern','col0','col1','col2']) $(id).oninput=()=>{ if(!draft) return;
   draft.cover=$('optCover').value; draft.pattern=$('optPattern').value; draft.colors=[$('col0').value,$('col1').value,$('col2').value]; showDraft(); };
+// a lifted mask restored from storage decodes after the tray is built: refresh its chip once it is in
+window.addEventListener('customready',()=>{ mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,chips.custom.querySelector('canvas')); if(!running&&result) draw(); });
 $('btnSheetClose').onclick=closeSheet;
 $('sheet').onclick=e=>{ if(e.target===$('sheet')) closeSheet(); };
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
 $('btnUseCustom').onclick=async()=>{
-  spec=draft; try{ localStorage.setItem('maskup.custom',JSON.stringify(spec)); }catch{}
+  spec=draft;
+  try{ const x={...spec}; if(spec.mode==='lift'&&spec.lift){ x.lift=spec.lift.toDataURL?spec.lift.toDataURL('image/png'):spec.lift.src; } localStorage.setItem('maskup.custom',JSON.stringify(x)); }catch{}
   mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,chips.custom.querySelector('canvas'));
   await closeSheet(); selectMask(CUSTOM);
 };
