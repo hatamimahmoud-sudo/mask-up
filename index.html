@@ -96,6 +96,10 @@
   .swatches input::-webkit-color-swatch-wrapper{padding:5px}
   .swatches input::-webkit-color-swatch{border:2px solid rgba(255,255,255,.25);border-radius:50%}
   .panel .msg{margin:0;max-width:none;text-align:left}
+  .keyrow{display:flex;flex-direction:column;gap:8px}
+  .msg.small{font-size:13px}
+  .msg a{color:var(--accent)}
+  .link{background:none;padding:0;color:var(--accent);font-size:13px;text-decoration:underline}
   .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 16px);transform:translateX(-50%);background:var(--ink);color:var(--stage);padding:10px 16px;border-radius:999px;font-size:13px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center;z-index:2}
   .toast.show{opacity:1}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -146,8 +150,8 @@
 </div>
 <div class="sheet" id="sheet" hidden>
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
-    <h2 id="sheetTitle">Make a mask from a photo</h2>
-    <p class="msg">Choose a photo of someone wearing a mask you like. The app takes its colours and where it sits, and draws its own version. Nothing from the photo is copied, and it stays on your phone.</p>
+    <h2 id="sheetTitle">Make your own mask</h2>
+    <p class="msg">Choose a photo of someone wearing a mask you like and the app lifts it off their face. Or describe a mask in words and Claude draws it. Photos stay on your phone.</p>
     <div class="row2">
       <button class="btn primary" id="btnPick">Choose a photo</button>
       <button class="btn" id="btnSnap" hidden>Snap the camera</button>
@@ -155,6 +159,14 @@
     <div class="row2">
       <input class="field" id="imgUrl" type="url" inputmode="url" placeholder="Or paste a link" aria-label="Image link" autocomplete="off">
       <button class="btn" id="btnFetch" disabled>Load</button>
+    </div>
+    <div class="row2">
+      <input class="field" id="descText" type="text" placeholder="Or describe a mask to Claude" aria-label="Describe a mask" autocomplete="off" enterkeyhint="go">
+      <button class="btn" id="btnDescribe" disabled>Make it</button>
+    </div>
+    <div class="keyrow" id="keyRow" hidden>
+      <input class="field" id="apiKey" type="password" placeholder="Anthropic API key" aria-label="Anthropic API key" autocomplete="off">
+      <p class="msg small">Describing a mask sends your words to Claude. That needs an API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. It stays on this phone and is only ever sent to Anthropic. <button class="link" id="btnForgetKey" type="button">Forget key</button></p>
     </div>
     <div class="result" id="result" hidden>
       <canvas id="customPreview" width="124" height="124"></canvas>
@@ -796,9 +808,11 @@ const okSpec=x=>x&&typeof x==='object'&&['full','lower','eyes','auto'].includes(
   &&Array.isArray(x.colors)&&x.colors.length===3&&x.colors.every(c=>/^#[0-9a-f]{6}$/i.test(c));
 let spec=null; try{ const x=JSON.parse(localStorage.getItem('maskup.custom')); if(okSpec(x)) spec={cover:x.cover,pattern:x.pattern,mouth:!!x.mouth,colors:x.colors};
   if(spec&&x.mode==='lift'&&typeof x.lift==='string'&&x.lift.startsWith('data:image/')){ spec.mode='lift'; const im=new Image(); im.onload=()=>{ spec.lift=im; window.dispatchEvent(new Event('customready')); }; im.src=x.lift; }
+  if(spec&&x.mode==='program'&&okProgram(x.program)){ spec.mode='program'; spec.program=okProgram(x.program); }
   if(spec&&x.mode==='image'&&x.fit&&typeof x.fit.img==='string'&&x.fit.img.startsWith('data:image/')&&x.fit.box){ spec.mode='image'; const im=new Image(); im.onload=()=>{ spec.fit={canvas:im,box:x.fit.box,eyes:x.fit.eyes||null}; window.dispatchEvent(new Event('customready')); }; im.src=x.fit.img; } }catch{}
 function drawSpec(c,g,sp){
   const {P,off,fw}=g, r=rng(21);
+  if(sp.mode==='program'&&sp.program){ runProgram(c,g,sp.program.tex); return; }
   if(sp.mode==='image'&&sp.fit){
     const S=c.canvas.width;
     drawFitted(c,sp.fit,fitTransform(sp.fit,g));
@@ -836,7 +850,9 @@ function drawSpec(c,g,sp){
   shade(c,g,region,P(10),P(152),.22,'evenodd');
 }
 MASKS.push({id:'custom',name:'Custom',tex(c,g){ drawSpec(c,g,spec||DEFAULT_SPEC); },
-  over(c,g){ const sp=spec; if(!sp||sp.mode!=='image'||!sp.fit) return;
+  under(c,g){ const sp=spec; if(sp&&sp.mode==='program'&&sp.program) runProgram(c,g,sp.program.under); },
+  over(c,g){ const sp=spec; if(sp&&sp.mode==='program'&&sp.program){ runProgram(c,g,sp.program.over); return; }
+    if(!sp||sp.mode!=='image'||!sp.fit) return;
     // the artwork outside the face oval, flat: ears, bows, hats
     c.save(); c.beginPath(); c.rect(-1e5,-1e5,2e5,2e5); addPath(c,inset(g,FACE_OVAL,0)); c.clip('evenodd'); drawFitted(c,sp.fit,fitTransform(sp.fit,g)); c.restore(); }});
 
@@ -1065,6 +1081,126 @@ async function analyse(img,detect){
   else if(!L){ let fit=null; try{ fit=fitImage(cv); }catch(e){ console.error('fit failed',e); } if(fit){ spec.mode='image'; spec.cover='auto'; spec.fit=fit; } }
   return {spec,faceFound:!!L,maskFound,skinlike,lifted:!!spec.lift,fitted:!!spec.fit,eyesFound:!!(spec.fit&&spec.fit.eyes),coverage:lift?lift.coverage:0,debug:{...debug,coverage:lift?lift.coverage:null,lift:lift?lift.debug:null}};
 }
+
+// ---------- Mask language ----------
+// A described mask is a small JSON program that Claude writes and this interprets. Three layers:
+// tex (painted on the face, follows the skin), over (flat, in front, for things leaving the face) and
+// under (flat, behind the face). Points are [anchor, up, right]: a landmark index or a named anchor,
+// moved up by a fraction of face height and right by a fraction of face width. Everything is validated
+// and clamped before it is drawn, so a bad program draws nothing rather than throwing.
+const ANCHORS={eyeL:'EYE_L',eyeR:'EYE_R',lips:'LIPS',nose:4,noseBase:2,noseBridge:197,chin:152,brow:9,forehead:10,top:10,cheekL:280,cheekR:50,
+  templeL:356,templeR:127,earL:332,earR:103,mouthL:291,mouthR:61,jawL:288,jawR:58,browL:334,browR:105,underEyeL:346,underEyeR:117,lipTop:0,lipBottom:17};
+const LOOPS={eyeL:EYE_L,eyeR:EYE_R,lips:LIPS,brows:[...BROW_R,9,...BROW_L]};
+const num=(v,lo,hi,d)=>{ v=+v; return Number.isFinite(v)?Math.min(hi,Math.max(lo,v)):d; };
+const col=(v,d)=>typeof v==='string'&&/^(#[0-9a-f]{3,8}|rgba?\([\d.,\s%]+\))$/i.test(v.trim())?v.trim():d;
+function anchor(g,a){
+  if(typeof a==='number') return g.P(Math.min(477,Math.max(0,Math.round(a))));
+  const k=ANCHORS[a]; if(k===undefined) return g.P(197);
+  return typeof k==='number'?g.P(k):g.centroid(LOOPS[a]||EYE_R);
+}
+const ptOf=(g,p)=>{ if(!Array.isArray(p)) return g.P(197); return g.off(anchor(g,p[0]),num(p[1],-1.5,1.5,0),num(p[2],-1.5,1.5,0)); };
+// region ops build a path; paint ops fill or stroke it; pattern ops clip to it
+function regionPath(c,g,o){
+  const {P,off}=g;
+  switch(o.op){
+    case 'cover': coverPath(c,g,{edge:num(o.edge,-.1,.15,.02),eyes:num(o.eyes,0,3,1.35),lips:num(o.lips,0,3,1.1),nostrils:!!o.nostrils}); return 'evenodd';
+    case 'lower': { const J=inset(g,JAW,num(o.inset,-.05,.15,.07)), lC=off(J[J.length-1],-.05,0), rC=off(J[0],-.05,0), t=off(P(197),num(o.top,-.2,.2,.02),0);
+      c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); return 'nonzero'; }
+    case 'eyemask': { path(c,eyeShape(g,num(o.lift,-.05,.15,.06),false)); const h=num(o.holes,0,3,1.6); if(h){ addPath(c,g.ring(EYE_R,h)); addPath(c,g.ring(EYE_L,h)); } return 'evenodd'; }
+    case 'band': { const a=num(o.from,-1,1,.1), b=num(o.to,-1,1,-.1), l=P(234), r=P(454);
+      path(c,[off(l,a,-.3),off(r,a,.3),off(r,b,.3),off(l,b,-.3)]); return 'nonzero'; }
+    case 'ring': { const loop=LOOPS[o.loop]||EYE_R; path(c,g.ring(loop,num(o.k,.5,4,1.5))); const h=num(o.hole,0,4,0); if(h){ addPath(c,g.ring(loop,h)); } return 'evenodd'; }
+    case 'poly': { const pts=(Array.isArray(o.pts)?o.pts:[]).slice(0,60).map(p=>ptOf(g,p)); if(pts.length<2) return null; path(c,pts,o.close!==false); return 'nonzero'; }
+    case 'circle': { const p=ptOf(g,o.at), r=num(o.r,0,1,.05)*g.fw; c.beginPath(); c.arc(p.x,p.y,r,0,7); return 'nonzero'; }
+    case 'ellipse': { const p=ptOf(g,o.at); c.beginPath(); c.ellipse(p.x,p.y,num(o.rx,0,1,.05)*g.fw,num(o.ry,0,1,.05)*g.fw,g.roll+num(o.rot,-3.2,3.2,0),0,7); return 'nonzero'; }
+  }
+  return null;
+}
+function paint(c,g,o,rule){
+  const fill=col(o.fill,null), stroke=col(o.stroke,null), a=num(o.alpha,0,1,1);
+  c.save(); c.globalAlpha=a;
+  const doFill=()=>{ c.fillStyle=fill; c.fill(rule); };
+  if(fill){ if(o.shadow) shadow(c,g,doFill,num(o.shadow===true?.4:o.shadow,0,1,.4)); else doFill(); }
+  if(stroke){ c.strokeStyle=stroke; c.lineWidth=num(o.width,0,.2,.01)*g.fw; c.lineJoin='round'; c.lineCap=o.cap==='butt'?'butt':'round'; c.stroke(); }
+  c.restore();
+}
+function runOp(c,g,o){
+  const {P,off,fw,fh}=g;
+  if(!o||typeof o!=='object') return;
+  const rule=regionPath(c,g,o);
+  if(rule){
+    paint(c,g,o,rule);
+    const sh=num(o.shade,0,.6,0); if(sh&&col(o.fill,null)){ shade(c,g,()=>regionPath(c,g,o),off(P(10),0,0),off(P(152),0,0),sh,rule); }
+    return;
+  }
+  const withRegion=fn=>{ c.save(); if(o.region&&typeof o.region==='object'){ const r=regionPath(c,g,o.region); if(r) c.clip(r); } else { coverPath(c,g,{edge:-.02}); c.clip(); } fn(); c.restore(); };
+  const r=rng(num(o.seed,0,1e6,7));
+  switch(o.op){
+    case 'line': case 'curve': { const a=ptOf(g,o.from), b=ptOf(g,o.to); c.save(); c.globalAlpha=num(o.alpha,0,1,1); c.strokeStyle=col(o.color,'#111'); c.lineWidth=num(o.width,0,.2,.02)*fw; c.lineCap=o.cap==='butt'?'butt':'round';
+      c.beginPath(); c.moveTo(a.x,a.y); if(o.op==='curve'){ const m=ptOf(g,o.ctl); c.quadraticCurveTo(m.x,m.y,b.x,b.y); } else c.lineTo(b.x,b.y); c.stroke(); c.restore(); return; }
+    case 'tint': { c.save(); c.globalAlpha=num(o.alpha,0,1,.35); c.fillStyle=col(o.fill,'#fff'); coverPath(c,g,{edge:-.02}); c.fill(); c.restore(); return; }
+    case 'dots': withRegion(()=>{ c.fillStyle=col(o.color,'#fff'); const sp=num(o.spacing,.03,.4,.09), rad=num(o.r,.002,.1,.014)*fw;
+      for(let i=-12;i<=12;i++) for(let k=-12;k<=12;k++){ const p=off(P(197),k*sp*.8,i*sp+(k%2?sp/2:0)); c.beginPath(); c.arc(p.x,p.y,rad,0,7); c.fill(); } }); return;
+    case 'stripes': withRegion(()=>{ c.strokeStyle=col(o.color,'#fff'); c.lineWidth=num(o.width,.005,.3,.035)*fw; const sp=num(o.spacing,.03,.5,.11), an=num(o.angle,-180,180,45)*Math.PI/180;
+      for(let k=-12;k<=12;k++){ const cx=P(197), dir={u:Math.cos(an),v:Math.sin(an)}, n={u:-Math.sin(an),v:Math.cos(an)}; const a=off(cx,n.u*k*sp+dir.u*1.2,n.v*k*sp+dir.v*1.2), b=off(cx,n.u*k*sp-dir.u*1.2,n.v*k*sp-dir.v*1.2); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); } }); return;
+    case 'blobs': withRegion(()=>{ const cols=(Array.isArray(o.colors)?o.colors:[o.color]).map(x=>col(x,null)).filter(Boolean); if(!cols.length) cols.push('#333'); const n=num(o.count,1,120,30), sz=num(o.size,.01,.4,.09);
+      for(let i=0;i<n;i++){ const p=off(P(197),(r()-.5)*1.3,(r()-.5)*1.1); c.fillStyle=cols[i%cols.length]; c.beginPath(); c.ellipse(p.x,p.y,fw*sz*(.5+r()),fw*sz*(.3+.6*r()),r()*3.14,0,7); c.fill(); } }); return;
+    case 'knit': withRegion(()=>ribbing(c,g,()=>{ c.beginPath(); c.rect(-1e4,-1e4,2e4,2e4); },num(o.alpha,0,.5,.1))); return;
+    case 'freckles': withRegion(()=>{ c.fillStyle=col(o.color,'rgba(110,60,35,.4)'); const n=num(o.count,1,400,120);
+      for(let i=0;i<n;i++){ const v=(r()-.5)*.95, u=-.02-r()*.24+(1-Math.abs(v)*1.2)*.08, p=off(P(197),u,v); c.beginPath(); c.arc(p.x,p.y,fw*(.003+r()*.0035),0,7); c.fill(); } }); return;
+    case 'sparkle': withRegion(()=>{ const cols=(Array.isArray(o.colors)?o.colors:['#fff']).map(x=>col(x,null)).filter(Boolean); const n=num(o.count,1,200,40);
+      for(let i=0;i<n;i++){ const p=off(P(197),(r()-.5)*1.1,(r()-.5)*1.1), rad=fw*(.004+r()*.012); c.fillStyle=cols[i%cols.length]||'#fff'; c.beginPath(); c.arc(p.x,p.y,rad,0,7); c.fill(); c.fillStyle='rgba(255,255,255,.8)'; c.beginPath(); c.arc(p.x-rad*.3,p.y-rad*.3,rad*.3,0,7); c.fill(); } }); return;
+    case 'whiskers': { const n=P(4), colr=col(o.color,'#fff'); c.lineCap='round';
+      for(const sd of [-1,1]) for(const [dy,ey] of [[.015,.07],[0,0],[-.015,-.07]]){ const a=off(n,dy,sd*.17), b=off(n,ey,sd*num(o.length,.2,.7,.44)); c.strokeStyle='rgba(0,0,0,.2)'; c.lineWidth=fw*.018; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); c.strokeStyle=colr; c.lineWidth=fw*num(o.width,.004,.03,.011); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); } return; }
+    case 'nose': { const n=P(4), style=o.style||'cat', cl=col(o.color,'#F08BAE');
+      if(style==='clown'||style==='ball'){ const nr=g.dist(P(49),P(279))*num(o.size,.3,1.5,.72); c.fillStyle=cl; shadow(c,g,()=>{ c.beginPath(); c.arc(n.x,n.y,nr,0,7); c.fill(); }); c.fillStyle='rgba(255,255,255,.45)'; c.beginPath(); c.arc(n.x-nr*.3,n.y-nr*.3,nr*.3,0,7); c.fill(); }
+      else if(style==='pig'){ const nw=g.dist(P(49),P(279))*.75; c.save(); c.translate(n.x,n.y); c.rotate(g.roll); c.fillStyle=cl; shadow(c,g,()=>{ c.beginPath(); c.ellipse(0,0,nw,nw*.65,0,0,7); c.fill(); },.3); c.fillStyle='rgba(0,0,0,.45)'; for(const sd of [-1,1]){ c.beginPath(); c.ellipse(sd*nw*.4,0,nw*.15,nw*.25,0,0,7); c.fill(); } c.restore(); }
+      else { const nw=g.dist(P(49),P(279))*num(o.size,.3,1.2,.58); c.save(); c.translate(n.x,n.y); c.rotate(g.roll); c.fillStyle=cl; shadow(c,g,()=>{ c.beginPath(); c.moveTo(-nw,-nw*.35); c.lineTo(nw,-nw*.35); c.lineTo(0,nw*.6); c.closePath(); c.fill(); },.25); c.restore(); }
+      return; }
+    case 'fangs': { c.fillStyle=col(o.color,'#F7F7F2'); c.strokeStyle='rgba(0,0,0,.4)'; c.lineWidth=fw*.004; c.lineJoin='round';
+      for(const i of [61,291]){ const t=off(g.lerp(P(0),P(i),.5),-.008,0); path(c,[off(t,0,-.02),off(t,0,.02),off(t,-num(o.length,.02,.12,.06),0)]); c.fill(); c.stroke(); } return; }
+    case 'teeth': { c.fillStyle=col(o.back,'#111'); path(c,g.ring(LIPS,1.45)); c.fill(); c.fillStyle=col(o.color,'#EDEAE2');
+      for(let k=0;k<9;k++){ const p=g.lerp(P(61),P(291),(k+.5)/9); c.save(); c.translate(p.x,p.y); c.rotate(g.roll); c.beginPath(); c.roundRect(-fw*.014,-fh*.028,fw*.028,fh*.056,fw*.006); c.fill(); c.restore(); } return; }
+    case 'stitch': { const a=ptOf(g,o.from), b=ptOf(g,o.to); c.lineCap='round'; c.strokeStyle=col(o.color,'#5A0F12'); c.lineWidth=fw*num(o.width,.005,.05,.02); c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+      c.strokeStyle=col(o.thread,'#2A1A1A'); c.lineWidth=fw*.008; for(let k=.15;k<1;k+=.22){ const p={x:a.x+(b.x-a.x)*k,y:a.y+(b.y-a.y)*k}, d={x:-(b.y-a.y),y:b.x-a.x}, l=Math.hypot(d.x,d.y)||1; c.beginPath(); c.moveTo(p.x-d.x/l*fw*.025,p.y-d.y/l*fw*.025); c.lineTo(p.x+d.x/l*fw*.025,p.y+d.y/l*fw*.025); c.stroke(); } return; }
+    case 'eyeshadow': { c.save(); coverPath(c,g,{edge:-.02}); c.clip(); c.globalCompositeOperation='multiply'; const cl=col(o.color,'rgb(120,100,130)');
+      for(const E of [EYE_R,EYE_L]){ const e=g.centroid(E), gr=c.createRadialGradient(e.x,e.y,fw*.04,e.x,e.y,fw*num(o.size,.06,.3,.16)); gr.addColorStop(0,cl); gr.addColorStop(1,'#fff'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); } c.restore(); return; }
+    case 'blush': { c.save(); coverPath(c,g,{edge:-.02}); c.clip(); const cl=col(o.color,'rgba(240,120,140,.5)');
+      for(const i of [50,280]){ const p=off(P(i),-.01,0), gr=c.createRadialGradient(p.x,p.y,0,p.x,p.y,fw*num(o.size,.05,.3,.14)); gr.addColorStop(0,cl); gr.addColorStop(1,'rgba(0,0,0,0)'); c.fillStyle=gr; c.fillRect(-1e4,-1e4,2e4,2e4); } c.restore(); return; }
+    case 'ears': { const style=o.style||'cat', cl=col(o.color,'#2E2A2E'), inner=col(o.inner,'#F4A6C2');
+      for(const [a,b,sd] of [[54,103,-1],[284,332,1]]){
+        if(style==='cat'){ const b1=off(P(a),.02,sd*.08), b2=off(P(b),-.01,-sd*.02), ap=off(g.lerp(P(a),P(b),.5),num(o.height,.1,.5,.3),sd*.08); c.fillStyle=cl; shadow(c,g,()=>{ path(c,[b1,ap,b2]); c.fill(); },.3); const m={x:(b1.x+b2.x+ap.x)/3,y:(b1.y+b2.y+ap.y)/3}; c.fillStyle=inner; path(c,[b1,ap,b2].map(p=>g.lerp(m,p,.6))); c.fill(); }
+        else if(style==='bear'||style==='mouse'){ const e=off(P(a===54?103:332),.07,sd*.08), rr=fw*num(o.size,.05,.25,style==='mouse'?.15:.12); c.fillStyle=cl; shadow(c,g,()=>{ c.beginPath(); c.arc(e.x,e.y,rr,0,7); c.fill(); },.3); c.fillStyle=inner; c.beginPath(); c.arc(e.x,e.y,rr*.6,0,7); c.fill(); }
+        else if(style==='bunny'){ const base=off(P(a===54?103:332),-.02,sd*.02), tip=off(base,num(o.height,.2,.7,.44),sd*.1), mid={x:(base.x+tip.x)/2,y:(base.y+tip.y)/2}, ang=Math.atan2(tip.y-base.y,tip.x-base.x), len=Math.hypot(tip.x-base.x,tip.y-base.y);
+          c.save(); c.translate(mid.x,mid.y); c.rotate(ang); c.fillStyle=cl; shadow(c,g,()=>{ c.beginPath(); c.ellipse(0,0,len/2,fw*.065,0,0,7); c.fill(); },.3); c.fillStyle=inner; c.beginPath(); c.ellipse(0,0,len*.4,fw*.035,0,0,7); c.fill(); c.restore(); }
+        else if(style==='devil'||style==='horns'){ const b1=off(P(a),.02,sd*.06), b2=off(P(b),-.01,-sd*.01), tip=off(g.lerp(P(a),P(b),.5),num(o.height,.1,.5,.26),sd*.16), ctl=off(g.lerp(P(a),P(b),.5),.2,sd*.02); c.fillStyle=cl; shadow(c,g,()=>{ c.beginPath(); c.moveTo(b1.x,b1.y); c.quadraticCurveTo(ctl.x,ctl.y,tip.x,tip.y); c.quadraticCurveTo(off(ctl,-.02,sd*.04).x,off(ctl,-.02,sd*.04).y,b2.x,b2.y); c.closePath(); c.fill(); },.35); }
+        else if(style==='antennae'){ const base=off(P(a===54?103:332),0,sd*.02), tip=off(base,.3,sd*.22), ctl=off(base,.2,sd*.04); c.lineCap='round'; for(const [cc,w] of [['rgba(255,255,255,.6)',fw*.028],[cl,fw*.018]]){ c.strokeStyle=cc; c.lineWidth=w; c.beginPath(); c.moveTo(base.x,base.y); c.quadraticCurveTo(ctl.x,ctl.y,tip.x,tip.y); c.stroke(); } c.fillStyle=inner; shadow(c,g,()=>{ c.beginPath(); c.arc(tip.x,tip.y,fw*.04,0,7); c.fill(); },.3); }
+      } return; }
+    case 'hat': { const style=o.style||'witch', cl=col(o.color,'#17141C'), ac=col(o.accent,'#6B3FA0'), base=off(P(10),.1,0);
+      if(style==='witch'){ const top=off(P(10),.46,.05); c.fillStyle=cl; c.lineJoin='round'; shadow(c,g,()=>{ c.save(); c.translate(base.x,base.y); c.rotate(g.roll); c.beginPath(); c.ellipse(0,0,fw*.62,fw*.09,0,0,7); c.fill(); c.restore(); },.4); path(c,[off(base,0,-.3),top,off(base,0,.3)]); c.fill(); c.strokeStyle=ac; c.lineWidth=fw*.05; const b1=off(base,.05,-.28), b2=off(base,.05,.28); c.beginPath(); c.moveTo(b1.x,b1.y); c.lineTo(b2.x,b2.y); c.stroke(); }
+      else if(style==='crown'){ const pts=[]; for(let k=0;k<=8;k++){ pts.push(off(base,k%2?.22:.06,-.4+k*.1)); } pts.push(off(base,-.06,.4),off(base,-.06,-.4)); c.fillStyle=cl==='#17141C'?'#E4B44C':cl; shadow(c,g,()=>{ path(c,pts); c.fill(); },.35); c.fillStyle=ac; for(let k=1;k<8;k+=2){ const p=off(base,.2,-.4+k*.1); c.beginPath(); c.arc(p.x,p.y,fw*.022,0,7); c.fill(); } }
+      else if(style==='halo'){ const p=off(P(10),.3,0); c.save(); c.translate(p.x,p.y); c.rotate(g.roll); c.strokeStyle=cl==='#17141C'?'#FFD166':cl; c.lineWidth=fw*.035; c.shadowColor='rgba(255,220,120,.8)'; c.shadowBlur=fw*.05; c.beginPath(); c.ellipse(0,0,fw*.32,fw*.09,0,0,7); c.stroke(); c.restore(); }
+      else if(style==='party'){ const top=off(base,.48,.02); c.fillStyle=cl; shadow(c,g,()=>{ path(c,[off(base,.02,-.18),top,off(base,.02,.18)]); c.fill(); },.35); c.fillStyle=ac; c.beginPath(); c.arc(top.x,top.y,fw*.04,0,7); c.fill(); }
+      else { const dome=inset(g,FACE_OVAL,-.12).map((p,i)=>[10,338,109,297,67,332,103,284,54,251,21,389,162,356,127].includes(FACE_OVAL[i])?off(p,.12,0):p); c.save(); c.beginPath(); c.rect(-1e5,-1e5,2e5,2e5); addPath(c,inset(g,FACE_OVAL,-.02)); c.clip('evenodd'); c.fillStyle=cl; shadow(c,g,()=>{ path(c,dome); c.fill(); },.4); c.restore();
+        c.strokeStyle=ac; c.lineWidth=fh*.07; c.lineCap='round'; const b1=off(P(127),.1,0), b2=off(P(356),.1,0), t=off(P(10),.08,0); c.beginPath(); c.moveTo(b1.x,b1.y); c.quadraticCurveTo(t.x,t.y,b2.x,b2.y); c.stroke(); }
+      return; }
+    case 'glasses': { const {dist,centroid}=g, ew=dist(P(33),P(133))*num(o.size,1,3,2.1), eh=ew*num(o.ratio,.3,1,.58), cl=col(o.color,'#111'), tint=col(o.tint,'#1a1a22'), eyes=[off(centroid(EYE_R),.02,0),off(centroid(EYE_L),.02,0)];
+      c.lineCap='round'; c.strokeStyle=cl; c.lineWidth=fw*.03; const bA=off(P(133),.02,0), bB=off(P(362),.02,0); c.beginPath(); c.moveTo(bA.x,bA.y); c.lineTo(bB.x,bB.y); c.stroke();
+      for(const [i,t] of [[eyes[0],127],[eyes[1],356]]){ const tp=off(P(t),.04,0); c.beginPath(); c.moveTo(i.x,i.y); c.lineTo(tp.x,tp.y); c.stroke(); }
+      for(const i of eyes){ c.save(); c.translate(i.x,i.y); c.rotate(g.roll); c.globalAlpha=num(o.alpha,.2,1,1); c.fillStyle=tint; c.strokeStyle=cl; c.lineWidth=fw*.025; shadow(c,g,()=>{ c.beginPath(); if(o.shape==='round') c.arc(0,0,ew/2,0,7); else c.roundRect(-ew/2,-eh/2,ew,eh,ew*.2); c.fill(); }); c.beginPath(); if(o.shape==='round') c.arc(0,0,ew/2,0,7); else c.roundRect(-ew/2,-eh/2,ew,eh,ew*.2); c.stroke(); c.globalAlpha=1; c.fillStyle='rgba(255,255,255,.18)'; c.beginPath(); c.ellipse(ew*.15,-eh*.22,ew*.2,eh*.12,-.4,0,7); c.fill(); c.restore(); }
+      return; }
+    case 'neck': { const cl=col(o.fill,'#1E1E23'); const neck=[off(P(234),0,-.03),off(P(234),-.3,-.06),off(P(152),-.36,-.28),off(P(152),-.38,0),off(P(152),-.36,.28),off(P(454),-.3,.06),off(P(454),0,.03),...inset(g,JAW,.02).slice(1,-1)]; c.fillStyle=cl; shadow(c,g,()=>{ path(c,neck); c.fill(); },.5); return; }
+    case 'hood': { const cl=col(o.fill,'#141416'); const TOP=new Set([10,338,109,297,67,332,103,284,54,251,21,389,162,356,127]); const hood=inset(g,FACE_OVAL,-.16).map((p,i)=>TOP.has(FACE_OVAL[i])?off(p,.14,0):p); c.fillStyle=cl; shadow(c,g,()=>{ path(c,hood); addPath(c,inset(g,FACE_OVAL,.03)); c.fill('evenodd'); },.5); return; }
+  }
+}
+const OPS_ALL=new Set(['cover','lower','eyemask','band','ring','poly','circle','ellipse','line','curve','tint','dots','stripes','blobs','knit','freckles','sparkle','whiskers','nose','fangs','teeth','stitch','eyeshadow','blush','ears','hat','glasses','neck','hood']);
+function okProgram(p){
+  if(!p||typeof p!=='object') return null;
+  const layer=a=>Array.isArray(a)?a.filter(o=>o&&typeof o==='object'&&OPS_ALL.has(o.op)).slice(0,80):[];
+  const out={name:typeof p.name==='string'?p.name.slice(0,24):'Custom',tex:layer(p.tex),over:layer(p.over),under:layer(p.under)};
+  return out.tex.length+out.over.length+out.under.length?out:null;
+}
+function runProgram(c,g,ops){ for(const o of ops){ try{ c.save(); runOp(c,g,o); }catch(e){ console.error('op failed',o.op,e); }finally{ c.restore(); } } }
 
 // ---------- Mesh renderer ----------
 // Paints a mask's tex() into a 1024 texture once, then every frame warps that texture onto
@@ -1535,8 +1671,8 @@ function openSheet(){
   if(!$('sheet').hidden) return;
   if(recording){ if(spec) selectMask(CUSTOM); else say('Stop recording first to make a custom mask.'); return; }
   wasRunning=running; running=false;                 // detection runs in IMAGE mode while the sheet is open
-  draft=spec?{...spec,colors:[...spec.colors]}:null; if(draft&&((draft.mode==='lift'&&!draft.lift)||(draft.mode==='image'&&!draft.fit))) draft=null;
-  $('sheetTitle').textContent=draft?'Your mask':'Make a mask from a photo';
+  draft=spec?{...spec,colors:[...spec.colors]}:null; if(draft&&((draft.mode==='lift'&&!draft.lift)||(draft.mode==='image'&&!draft.fit)||(draft.mode==='program'&&!draft.program))) draft=null;
+  $('sheetTitle').textContent=draft?'Your mask':'Make your own mask';
   $('result').hidden=!draft; $('btnUseCustom').disabled=!draft; $('customMsg').textContent=draft?'Your custom mask. Adjust it, or choose a new photo.':'';
   $('imgUrl').value=''; $('btnFetch').disabled=true; if(draft) showDraft();
   $('btnSnap').hidden=!(stream&&video.videoWidth);
@@ -1548,7 +1684,8 @@ async function closeSheet(){
   if(wasRunning&&stream) await resumeLive();
 }
 function showDraft(){
-  const lifted=(draft.mode==='lift'&&draft.lift)||(draft.mode==='image'&&draft.fit);
+  const lifted=(draft.mode==='lift'&&draft.lift)||(draft.mode==='image'&&draft.fit)||(draft.mode==='program'&&draft.program);
+  $('optCover').closest('label').hidden=draft.mode==='program';
   document.querySelector('#optCover option[value=auto]').hidden=!lifted;
   $('optCover').value=draft.cover; $('optPattern').value=draft.pattern;
   $('optPattern').closest('label').hidden=!!lifted; document.querySelector('.swatches').closest('label').hidden=!!lifted;
@@ -1571,6 +1708,111 @@ async function fromImage(img){
     :!a.maskFound?'Found a face but no mask on it, so the colours came from the photo. Pick a shape.'
     :'Built from the photo. Adjust it if you like, then tap Use this mask.';
 }
+// ---------- Describe a mask ----------
+// The description goes to Claude with the mask language above, and Claude answers with a program.
+// The key is the person's own, kept on the phone. Nothing else leaves the device.
+const MASK_LANGUAGE=`You write face masks for a live camera app as JSON programs. The app maps the mask onto a 468-point face mesh in real time.
+
+OUTPUT: a single JSON object, nothing else. No prose, no code fences.
+{"name": "short name (max 14 chars)", "tex": [ops], "over": [ops], "under": [ops]}
+
+LAYERS
+- tex: painted onto the face texture. It follows the skin, wraps the nose and cheeks, moves with the mouth, and is re-lit from the video. Use for anything ON the face: fabric, paint, patterns, holes.
+- over: drawn flat in front, screen space. Use for things that leave the face (ears, hats, horns, halos, glasses, whiskers reaching past the cheeks).
+- under: drawn flat behind the face (a hood, a neck). Drawn as rings around the face, never over it.
+
+POINTS: [anchor, up, right]. anchor is a named anchor or a landmark index. up moves along the face's vertical axis as a fraction of face height (forehead-to-chin, positive = up). right moves along the horizontal axis as a fraction of face width (cheek-to-cheek, positive = image right).
+Anchors: forehead (top of the face), brow (between the brows), browL, browR, eyeL, eyeR (eye centres; L is image-left, the person's right), underEyeL, underEyeR, noseBridge, nose (tip), noseBase, cheekL, cheekR, templeL, templeR, earL, earR (top corners of the head), mouthL, mouthR (corners), lipTop, lipBottom, lips (centre), jawL, jawR, chin.
+Sizes: r, rx, ry, width are fractions of face width. Colours are hex strings.
+
+REGION OPS (fill and/or stroke a shape; add "shade": 0..0.5 for curvature shading; "shadow": true for a soft drop shadow; "alpha": 0..1)
+- {"op":"cover","fill","edge":0.02,"eyes":1.35,"lips":1.1,"nostrils":true} full face. eyes/lips scale the holes (0 = no hole). edge inset from the outline (negative overruns it).
+- {"op":"lower","fill","inset":0.07,"top":0.02} lower half, like a surgical mask or bandana: from below the eyes down over the chin.
+- {"op":"eyemask","fill","lift":0.06,"holes":1.6} across the eyes from brows to cheekbones, with eye holes.
+- {"op":"band","fill","from":0.1,"to":-0.1} horizontal band across the face between two heights (relative to the nose bridge).
+- {"op":"ring","loop":"eyeL|eyeR|lips|brows","k":1.5,"hole":0,"fill","stroke","width"} a scaled outline of a feature.
+- {"op":"poly","pts":[[anchor,up,right],...],"fill","stroke","width","close":true}
+- {"op":"circle","at":pt,"r":0.05,"fill","stroke","width"}
+- {"op":"ellipse","at":pt,"rx","ry","rot":0,"fill"}
+PATTERN OPS (optional "region": a region op to clip to; default is the whole face)
+- {"op":"dots","color","spacing":0.09,"r":0.014}
+- {"op":"stripes","color","width":0.035,"spacing":0.11,"angle":45}
+- {"op":"blobs","colors":["#..",".."],"count":30,"size":0.09}
+- {"op":"knit","alpha":0.1}
+- {"op":"freckles","color","count":120}
+- {"op":"sparkle","colors":[..],"count":40}
+LINE OPS
+- {"op":"line","from":pt,"to":pt,"width":0.02,"color"}
+- {"op":"curve","from":pt,"ctl":pt,"to":pt,"width","color"}
+- {"op":"stitch","from":pt,"to":pt,"color","thread"} a wound with cross stitches
+FACE PRESETS (tex)
+- {"op":"tint","fill","alpha":0.35} colour the whole face
+- {"op":"whiskers","color","length":0.44,"width":0.011}
+- {"op":"nose","style":"cat|clown|pig","color","size"}
+- {"op":"fangs","color","length":0.06}
+- {"op":"teeth","color","back":"#111"} skull teeth over the mouth
+- {"op":"eyeshadow","color","size":0.16} dark rings around the eyes
+- {"op":"blush","color","size":0.14}
+OFF-FACE PRESETS (over)
+- {"op":"ears","style":"cat|bear|mouse|bunny|devil|antennae","color","inner","height"}
+- {"op":"hat","style":"witch|crown|halo|party|beanie","color","accent"}
+- {"op":"glasses","color","tint","shape":"rect|round","size":2.1,"alpha"}
+BEHIND (under)
+- {"op":"hood","fill"} a balaclava-style hood around the face
+- {"op":"neck","fill"} a gaiter-style neck below the jaw
+
+RULES
+- Original designs only. No brand logos, no named or copyrighted characters, no text or letters.
+- Do not paint over the eyes unless asked: give covers and eye masks their holes.
+- Keep it to what was asked. Ten to thirty ops is typical. Prefer a few well-placed ops over many tiny ones.
+- Shapes in tex are cut off at the face outline; anything that should stick out belongs in over.
+- Colours: pick a palette that reads at a glance on a phone. Use shade 0.2 to 0.35 on large fabric covers so they look curved.
+
+EXAMPLE, "a blue surgical mask with pleats":
+{"name":"Surgical","tex":[{"op":"lower","fill":"#A6DBF0","shade":0.3,"shadow":true},{"op":"curve","from":["cheekR",-0.12,0.05],"ctl":["nose",-0.14,0],"to":["cheekL",-0.12,-0.05],"width":0.006,"color":"#5D9EBE"},{"op":"curve","from":["cheekR",-0.22,0.06],"ctl":["nose",-0.24,0],"to":["cheekL",-0.22,-0.06],"width":0.006,"color":"#5D9EBE"}],"over":[{"op":"curve","from":["cheekR",-0.05,0],"ctl":["cheekR",-0.02,-0.16],"to":["jawR",0,0],"width":0.014,"color":"#82C4DE"},{"op":"curve","from":["cheekL",-0.05,0],"ctl":["cheekL",-0.02,0.16],"to":["jawL",0,0],"width":0.014,"color":"#82C4DE"}],"under":[]}
+
+EXAMPLE, "a cat":
+{"name":"Cat","tex":[{"op":"nose","style":"cat","color":"#F08BAE"},{"op":"whiskers","color":"#ffffff"}],"over":[{"op":"ears","style":"cat","color":"#2E2A2E","inner":"#F4A6C2"}],"under":[]}`;
+let apiKey=''; try{ apiKey=localStorage.getItem('maskup.key')||''; }catch{}
+$('keyRow').hidden=!!apiKey;
+$('descText').oninput=()=>{ $('btnDescribe').disabled=!$('descText').value.trim(); };
+$('btnForgetKey').onclick=()=>{ apiKey=''; try{ localStorage.removeItem('maskup.key'); }catch{} $('apiKey').value=''; $('keyRow').hidden=false; $('customMsg').textContent='Key forgotten.'; };
+async function describe(){
+  const text=$('descText').value.trim(); if(!text) return;
+  const key=(apiKey||$('apiKey').value.trim());
+  if(!key){ $('keyRow').hidden=false; $('customMsg').textContent='Paste an Anthropic API key first. It stays on this phone.'; $('apiKey').focus(); return; }
+  $('btnDescribe').disabled=true; $('customMsg').textContent='Asking Claude to draw it…';
+  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),120000);
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal:ctl.signal,
+      headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-opus-5',max_tokens:8000,output_config:{effort:'medium'},system:MASK_LANGUAGE,messages:[{role:'user',content:'Design this mask: '+text}]})});
+    if(res.status===401||res.status===403) throw new Error('key');
+    if(res.status===429||res.status===529) throw new Error('busy');
+    if(!res.ok) throw new Error('http '+res.status);
+    const data=await res.json();
+    if(data.stop_reason==='refusal') throw new Error('refused');
+    const out=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+    const a=out.indexOf('{'), b=out.lastIndexOf('}'); if(a<0||b<a) throw new Error('parse');
+    let prog; try{ prog=JSON.parse(out.slice(a,b+1)); }catch{ throw new Error('parse'); }
+    prog=okProgram(prog); if(!prog) throw new Error('parse');
+    if(!apiKey){ apiKey=key; try{ localStorage.setItem('maskup.key',key); }catch{} $('keyRow').hidden=true; }
+    draft={...DEFAULT_SPEC,mode:'program',program:prog,cover:'auto'}; $('result').hidden=false; $('btnUseCustom').disabled=false; showDraft();
+    $('customMsg').textContent=`Claude drew "${prog.name}". Use it, or describe it again with changes.`;
+  }catch(err){
+    const k=err&&err.message;
+    $('customMsg').textContent=err&&err.name==='AbortError'?'Claude took too long. Try again.'
+      :k==='key'?'That key was not accepted. Check it and try again.'
+      :k==='busy'?'Claude is busy right now. Try again in a moment.'
+      :k==='refused'?'Claude would not draw that one. Try a different description.'
+      :k==='parse'?'Claude answered, but not in a form the app can draw. Try again, or reword it.'
+      :'Could not reach Claude. Check the connection and try again.';
+    if(k==='key'){ apiKey=''; try{ localStorage.removeItem('maskup.key'); }catch{} $('keyRow').hidden=false; }
+  }finally{ clearTimeout(timer); $('btnDescribe').disabled=!$('descText').value.trim(); }
+}
+$('btnDescribe').onclick=describe;
+$('descText').onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); describe(); } };
+
 $('btnPick').onclick=()=>$('fileCustom').click();
 // Hold a real mask up to the camera. The frame is read straight off the live video.
 $('btnSnap').onclick=async()=>{ if(!stream||!video.videoWidth) return; try{ await fromImage(video); }catch(err){ $('customMsg').textContent=photoError(err); } };
@@ -1608,6 +1850,7 @@ $('btnUseCustom').onclick=async()=>{
   spec=draft;
   try{ const x={...spec}; if(spec.mode==='lift'&&spec.lift){ x.lift=spec.lift.toDataURL?spec.lift.toDataURL('image/png'):spec.lift.src; }
     if(spec.mode==='image'&&spec.fit){ const f=spec.fit; x.fit={img:f.canvas.toDataURL?f.canvas.toDataURL('image/png'):f.canvas.src,box:f.box,eyes:f.eyes}; }
+    if(spec.mode==='program') x.program=spec.program;
     localStorage.setItem('maskup.custom',JSON.stringify(x)); }catch{}
   mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,chips.custom.querySelector('canvas'));
   await closeSheet(); selectMask(CUSTOM);
