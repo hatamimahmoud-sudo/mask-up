@@ -795,9 +795,20 @@ const DEFAULT_SPEC={cover:'lower',pattern:'plain',colors:['#7CC1DE','#F6F2EA','#
 const okSpec=x=>x&&typeof x==='object'&&['full','lower','eyes','auto'].includes(x.cover)&&['plain','dots','stripes','blobs','knit'].includes(x.pattern)
   &&Array.isArray(x.colors)&&x.colors.length===3&&x.colors.every(c=>/^#[0-9a-f]{6}$/i.test(c));
 let spec=null; try{ const x=JSON.parse(localStorage.getItem('maskup.custom')); if(okSpec(x)) spec={cover:x.cover,pattern:x.pattern,mouth:!!x.mouth,colors:x.colors};
-  if(spec&&x.mode==='lift'&&typeof x.lift==='string'&&x.lift.startsWith('data:image/')){ spec.mode='lift'; const im=new Image(); im.onload=()=>{ spec.lift=im; window.dispatchEvent(new Event('customready')); }; im.src=x.lift; } }catch{}
+  if(spec&&x.mode==='lift'&&typeof x.lift==='string'&&x.lift.startsWith('data:image/')){ spec.mode='lift'; const im=new Image(); im.onload=()=>{ spec.lift=im; window.dispatchEvent(new Event('customready')); }; im.src=x.lift; }
+  if(spec&&x.mode==='image'&&x.fit&&typeof x.fit.img==='string'&&x.fit.img.startsWith('data:image/')&&x.fit.box){ spec.mode='image'; const im=new Image(); im.onload=()=>{ spec.fit={canvas:im,box:x.fit.box,eyes:x.fit.eyes||null}; window.dispatchEvent(new Event('customready')); }; im.src=x.fit.img; } }catch{}
 function drawSpec(c,g,sp){
   const {P,off,fw}=g, r=rng(21);
+  if(sp.mode==='image'&&sp.fit){
+    const S=c.canvas.width;
+    drawFitted(c,sp.fit,fitTransform(sp.fit,g));
+    c.globalCompositeOperation='destination-out'; c.fillStyle='#000'; for(const E of [EYE_R,EYE_L]){ path(c,g.ring(E,1.3)); c.fill(); } path(c,g.ring(LIPS,1.05)); c.fill();
+    c.globalCompositeOperation='destination-in'; path(c,inset(g,FACE_OVAL,0)); c.fill();
+    if(sp.cover&&sp.cover!=='auto'){ c.fillStyle='#000'; if(sp.cover==='full') coverPath(c,g,{edge:0}); else if(sp.cover==='eyes') path(c,eyeShape(g,.06,false));
+      else { const J=inset(g,JAW,.02), lC=off(J[J.length-1],-.05,0), rC=off(J[0],-.05,0), t=off(P(197),.03,0); c.beginPath(); c.moveTo(lC.x,lC.y); c.quadraticCurveTo(t.x,t.y,rC.x,rC.y); J.slice(1,-1).forEach(p=>c.lineTo(p.x,p.y)); c.closePath(); } c.fill(); }
+    c.globalCompositeOperation='source-over';
+    return;
+  }
   if(sp.mode==='lift'&&sp.lift){
     // the mask copied from the photo, already in UV space. A chosen shape clips it, Auto keeps what was found.
     const S=c.canvas.width; c.drawImage(sp.lift,0,0,S,S);
@@ -824,7 +835,10 @@ function drawSpec(c,g,sp){
   c.restore();
   shade(c,g,region,P(10),P(152),.22,'evenodd');
 }
-MASKS.push({id:'custom',name:'Custom',tex(c,g){ drawSpec(c,g,spec||DEFAULT_SPEC); }});
+MASKS.push({id:'custom',name:'Custom',tex(c,g){ drawSpec(c,g,spec||DEFAULT_SPEC); },
+  over(c,g){ const sp=spec; if(!sp||sp.mode!=='image'||!sp.fit) return;
+    // the artwork outside the face oval, flat: ears, bows, hats
+    c.save(); c.beginPath(); c.rect(-1e5,-1e5,2e5,2e5); addPath(c,inset(g,FACE_OVAL,0)); c.clip('evenodd'); drawFitted(c,sp.fit,fitTransform(sp.fit,g)); c.restore(); }});
 
 // Unwrap the face in a photo into UV space: each of the 898 mesh triangles is copied from where it sits in
 // the photo to where it sits on the mask texture. What comes out is that person's face, flattened, in the
@@ -893,6 +907,79 @@ function liftMask(photo,L){
   return {canvas:lift,coverage:covered/sc.length,refFound:!!ref,debug};
 }
 
+// A picture with no human face in it: a drawing, a character, a photo of a mask on a table. Cut the
+// artwork out from its background (flood fill from the edges over anything near the edge colours, or
+// light and unsaturated, which also eats the checkerboard behind a saved transparent PNG), then look for
+// a pair of eyes: two compact dark blobs side by side in the upper part of the artwork. With eyes, the
+// artwork is pinned to the wearer's eyes. Without, it is scaled to the face. Returns the cut-out and how
+// to place it, in artwork pixels, so the texture and the overlay can both use it.
+function fitImage(photo){
+  const W=photo.width, H=photo.height, x=photo.getContext('2d',{willReadFrequently:true}), id=x.getImageData(0,0,W,H), d=id.data;
+  const lum=q=>(d[q]+d[q+1]+d[q+2])/3, sat=q=>{ const m=Math.max(d[q],d[q+1],d[q+2])||1; return (m-Math.min(d[q],d[q+1],d[q+2]))/m; };
+  // edge colours: up to two clusters from the border
+  const border=[]; for(let i=0;i<W;i++){ border.push(4*i,4*((H-1)*W+i)); } for(let j=0;j<H;j++){ border.push(4*(j*W),4*(j*W+W-1)); }
+  const cols=[]; for(const q of border){ const c=[d[q],d[q+1],d[q+2]]; const k=cols.find(e=>Math.hypot(e.c[0]-c[0],e.c[1]-c[1],e.c[2]-c[2])<40); if(k) k.n++; else cols.push({c,n:1}); }
+  cols.sort((a,b)=>b.n-a.n); const edge=cols.slice(0,2).map(e=>e.c);
+  const bgLike=q=>d[q+3]<128||edge.some(c=>Math.hypot(d[q]-c[0],d[q+1]-c[1],d[q+2]-c[2])<48)||(lum(q)>185&&sat(q)<.1);
+  const bg=new Uint8Array(W*H), stack=[];
+  for(const q of border){ const i=q/4; if(!bg[i]&&bgLike(q)){ bg[i]=1; stack.push(i); } }
+  while(stack.length){ const i=stack.pop(), px=i%W, py=(i-px)/W;
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const xx=px+dx,yy=py+dy; if(xx<0||yy<0||xx>=W||yy>=H) continue; const j=yy*W+xx; if(!bg[j]&&bgLike(4*j)){ bg[j]=1; stack.push(j); } } }
+  // label the pieces of artwork that are left: text, buttons and thumbnails in a screenshot are separate islands
+  const label=new Int32Array(W*H); const sizes=[0]; let nl=0;
+  for(let i=0;i<W*H;i++){ if(bg[i]||label[i]) continue; const id2=++nl; sizes.push(0); const st=[i]; label[i]=id2;
+    while(st.length){ const j=st.pop(); sizes[id2]++; const px=j%W, py=(j-px)/W;
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const xx=px+dx,yy=py+dy; if(xx<0||yy<0||xx>=W||yy>=H) continue; const k=yy*W+xx; if(!bg[k]&&!label[k]){ label[k]=id2; st.push(k); } } } }
+  if(!nl) return null;
+  const pieceBox=id2=>{ let x0=W,y0=H,x1=0,y1=0; for(let i=0;i<W*H;i++){ if(label[i]!==id2) continue; const px=i%W, py=(i-px)/W; if(px<x0)x0=px; if(px>x1)x1=px; if(py<y0)y0=py; if(py>y1)y1=py; } return {x:x0,y:y0,w:x1-x0+1,h:y1-y0+1}; };
+  let keep=0; for(let k=1;k<=nl;k++) if(sizes[k]>sizes[keep]) keep=k;
+  let box=pieceBox(keep);
+  if(sizes[keep]<W*H*.03) return null;
+  // eyes: dark compact blobs in the top two thirds of the artwork, as a matched pair
+  const N=128, sx=W/N, sy=H/N, dark=new Uint8Array(N*N), seen=new Uint8Array(N*N), blobs=[];
+  let eyes=null;
+  const findEyes=piece=>{
+  for(let j=0;j<N;j++) for(let i=0;i<N;i++){ const pi=Math.floor((j+.5)*sy)*W+Math.floor((i+.5)*sx), q=4*pi; dark[j*N+i]=label[pi]===piece&&lum(q)<80?1:0; }
+  seen.fill(0); blobs.length=0;
+  for(let i=0;i<N*N;i++){ if(!dark[i]||seen[i]) continue; const st=[i]; seen[i]=1; let n=0,bx0=N,by0=N,bx1=0,by1=0,cx=0,cy=0;
+    while(st.length){ const j=st.pop(), px=j%N, py=(j-px)/N; n++; cx+=px; cy+=py; bx0=Math.min(bx0,px); bx1=Math.max(bx1,px); by0=Math.min(by0,py); by1=Math.max(by1,py);
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const xx=px+dx,yy=py+dy; if(xx<0||yy<0||xx>=N||yy>=N) continue; const k=yy*N+xx; if(dark[k]&&!seen[k]){ seen[k]=1; st.push(k); } } }
+    const bw=bx1-bx0+1, bh=by1-by0+1, fill=n/(bw*bh);
+    if(n>=6&&n<=N*N*.02&&bw/bh>.4&&bw/bh<2.5&&fill>.6) blobs.push({x:cx/n*sx,y:cy/n*sy,n}); }
+  let found=null, best=0;
+  for(let a=0;a<blobs.length;a++) for(let b=a+1;b<blobs.length;b++){ const A=blobs[a],B=blobs[b];
+    if(A.y>box.y+box.h*.55||B.y>box.y+box.h*.55) continue;
+    const dx=Math.abs(A.x-B.x), dy=Math.abs(A.y-B.y), ratio=Math.min(A.n,B.n)/Math.max(A.n,B.n);
+    if(dx<box.w*.12||dx>box.w*.6||dy>dx*.25||ratio<.5) continue;
+    const score=(A.n+B.n)*ratio; if(score>best){ best=score; found=A.x<B.x?[[A.x,A.y],[B.x,B.y]]:[[B.x,B.y],[A.x,A.y]]; } }
+  return found; };
+  // a character with eyes may not be the biggest piece (a screenshot's thumbnails add up). Try the big pieces, keep the first with eyes.
+  const order=[...Array(nl).keys()].map(k=>k+1).sort((a,b)=>sizes[b]-sizes[a]).slice(0,4);
+  for(const k of order){ if(sizes[k]<W*H*.03) break; box=pieceBox(k); const e=findEyes(k); if(e){ keep=k; eyes=e; break; } }
+  if(!eyes){ keep=order[0]; box=pieceBox(keep); }
+  for(let i=0;i<W*H;i++) if(label[i]!==keep) d[4*i+3]=0;
+  x.putImageData(id,0,0);
+  // with eyes found, keep a head's worth around them: ears and bows stay, bodies go
+  if(eyes){ const [a,b]=eyes, ed=Math.hypot(b[0]-a[0],b[1]-a[1]), cx=(a[0]+b[0])/2, cy=(a[1]+b[1])/2+ed*.3;
+    x.globalCompositeOperation='destination-in'; x.fillStyle='#000'; x.beginPath(); x.ellipse(cx,cy,ed*2.1,ed*2.5,Math.atan2(b[1]-a[1],b[0]-a[0]),0,7); x.fill(); x.globalCompositeOperation='source-over';
+    box={x:Math.max(0,cx-ed*2.1),y:Math.max(0,cy-ed*2.5),w:Math.min(W,cx+ed*2.1)-Math.max(0,cx-ed*2.1),h:Math.min(H,cy+ed*2.5)-Math.max(0,cy-ed*2.5)}; }
+  return {canvas:photo,box,eyes};
+}
+// Place a fitted artwork on a face: the transform from artwork pixels to face space, given the eye
+// centres (or the face box) in that space. Pinned to the eyes when the artwork has them.
+function fitTransform(fit,g){
+  const {P,centroid,fw,fh,off}=g;
+  if(fit.eyes){
+    const [a,b]=fit.eyes, ea=centroid(EYE_R), eb=centroid(EYE_L);
+    const s=Math.hypot(eb.x-ea.x,eb.y-ea.y)/Math.max(1,Math.hypot(b[0]-a[0],b[1]-a[1]));
+    const r=Math.atan2(eb.y-ea.y,eb.x-ea.x)-Math.atan2(b[1]-a[1],b[0]-a[0]);
+    return {s,r,tx:ea.x,ty:ea.y,ox:a[0],oy:a[1]};
+  }
+  const c=off(P(197),.02,0), s=fw*1.15/fit.box.w;
+  return {s,r:g.roll,tx:c.x,ty:c.y,ox:fit.box.x+fit.box.w/2,oy:fit.box.y+fit.box.h/2};
+}
+function drawFitted(c,fit,t){ c.save(); c.translate(t.tx,t.ty); c.rotate(t.r); c.scale(t.s,t.s); c.translate(-t.ox,-t.oy); c.drawImage(fit.canvas,0,0); c.restore(); }
+
 // Read a picture: is there a face, which parts of it are covered, and what colour is the covering.
 // Two routes. If enough of the face is not skin-coloured, the mask is that: its colour is the dominant
 // non-skin colour and its shape comes from which regions are non-skin. If almost all of the face reads
@@ -953,7 +1040,8 @@ async function analyse(img,detect){
   const debug={covered:L?Object.fromEntries(Object.entries(REG).map(([k,ids])=>[k,ids.filter(i=>!skin(at(L[i].x,L[i].y))).length])):null,samples:samples.length,second,skinlike};
   const spec={cover,mouth,pattern,colors:colors.map(hex)};
   if(lift&&lift.coverage>=.06){ spec.mode='lift'; spec.cover='auto'; spec.lift=lift.canvas; maskFound=true; skinlike=false; }
-  return {spec,faceFound:!!L,maskFound,skinlike,lifted:!!spec.lift,coverage:lift?lift.coverage:0,debug:{...debug,coverage:lift?lift.coverage:null,lift:lift?lift.debug:null}};
+  else if(!L){ let fit=null; try{ fit=fitImage(cv); }catch(e){ console.error('fit failed',e); } if(fit){ spec.mode='image'; spec.cover='auto'; spec.fit=fit; } }
+  return {spec,faceFound:!!L,maskFound,skinlike,lifted:!!spec.lift,fitted:!!spec.fit,eyesFound:!!(spec.fit&&spec.fit.eyes),coverage:lift?lift.coverage:0,debug:{...debug,coverage:lift?lift.coverage:null,lift:lift?lift.debug:null}};
 }
 
 // ---------- Mesh renderer ----------
@@ -1425,7 +1513,7 @@ function openSheet(){
   if(!$('sheet').hidden) return;
   if(recording){ if(spec) selectMask(CUSTOM); else say('Stop recording first to make a custom mask.'); return; }
   wasRunning=running; running=false;                 // detection runs in IMAGE mode while the sheet is open
-  draft=spec?{...spec,colors:[...spec.colors]}:null; if(draft&&draft.mode==='lift'&&!draft.lift) draft=null;
+  draft=spec?{...spec,colors:[...spec.colors]}:null; if(draft&&((draft.mode==='lift'&&!draft.lift)||(draft.mode==='image'&&!draft.fit))) draft=null;
   $('sheetTitle').textContent=draft?'Your mask':'Make a mask from a photo';
   $('result').hidden=!draft; $('btnUseCustom').disabled=!draft; $('customMsg').textContent=draft?'Your custom mask. Adjust it, or choose a new photo.':'';
   $('imgUrl').value=''; $('btnFetch').disabled=true; if(draft) showDraft();
@@ -1438,7 +1526,7 @@ async function closeSheet(){
   if(wasRunning&&stream) await resumeLive();
 }
 function showDraft(){
-  const lifted=draft.mode==='lift'&&draft.lift;
+  const lifted=(draft.mode==='lift'&&draft.lift)||(draft.mode==='image'&&draft.fit);
   document.querySelector('#optCover option[value=auto]').hidden=!lifted;
   $('optCover').value=draft.cover; $('optPattern').value=draft.pattern;
   $('optPattern').closest('label').hidden=!!lifted; document.querySelector('.swatches').closest('label').hidden=!!lifted;
@@ -1455,6 +1543,7 @@ async function fromImage(img){
   const a=await analyse(cv,detect); window.__lastAnalysis=a;
   draft=a.spec; $('result').hidden=false; $('btnUseCustom').disabled=false; showDraft();
   $('customMsg').textContent=a.lifted?'Copied the mask off that face. Use it as found, or pick a shape to trim it.'
+    :a.fitted?(a.eyesFound?'No face in that picture, so the artwork is pinned to your eyes. Use it, or pick a shape to trim it.':'No face in that picture, so the artwork is sized to your face. Use it, or pick a shape to trim it.')
     :!a.faceFound?'No face in that photo, so its colours went on a full-face mask. Change the shape if you like.'
     :a.skinlike?'That is close to skin colour, so it could be a sheet mask or no mask at all. Change the colours or shape if it is wrong.'
     :!a.maskFound?'Found a face but no mask on it, so the colours came from the photo. Pick a shape.'
@@ -1495,7 +1584,9 @@ $('sheet').onclick=e=>{ if(e.target===$('sheet')) closeSheet(); };
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
 $('btnUseCustom').onclick=async()=>{
   spec=draft;
-  try{ const x={...spec}; if(spec.mode==='lift'&&spec.lift){ x.lift=spec.lift.toDataURL?spec.lift.toDataURL('image/png'):spec.lift.src; } localStorage.setItem('maskup.custom',JSON.stringify(x)); }catch{}
+  try{ const x={...spec}; if(spec.mode==='lift'&&spec.lift){ x.lift=spec.lift.toDataURL?spec.lift.toDataURL('image/png'):spec.lift.src; }
+    if(spec.mode==='image'&&spec.fit){ const f=spec.fit; x.fit={img:f.canvas.toDataURL?f.canvas.toDataURL('image/png'):f.canvas.src,box:f.box,eyes:f.eyes}; }
+    localStorage.setItem('maskup.custom',JSON.stringify(x)); }catch{}
   mesh&&mesh.invalidate(CUSTOM); thumb(CUSTOM,chips.custom.querySelector('canvas'));
   await closeSheet(); selectMask(CUSTOM);
 };
