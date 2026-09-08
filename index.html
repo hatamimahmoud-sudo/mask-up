@@ -992,10 +992,12 @@ function fitImage(photo){
     if(n>=6&&n<=N*N*.02&&bw/bh>.4&&bw/bh<2.5&&fill>.6) blobs.push({x:cx/n*sx,y:cy/n*sy,n}); }
   let found=null, best=0;
   for(let a=0;a<blobs.length;a++) for(let b=a+1;b<blobs.length;b++){ const A=blobs[a],B=blobs[b];
-    if(A.y>box.y+box.h*.55||B.y>box.y+box.h*.55) continue;
+    // a bow or ears above the head push the eyes down the box, so allow pairs down to four fifths of it,
+    // preferring the higher pair (buttons under a character in a screenshot are lower still)
+    const low=Math.max(A.y,B.y), rel=(low-box.y)/box.h; if(rel>.8) continue;
     const dx=Math.abs(A.x-B.x), dy=Math.abs(A.y-B.y), ratio=Math.min(A.n,B.n)/Math.max(A.n,B.n);
     if(dx<box.w*.12||dx>box.w*.6||dy>dx*.25||ratio<.5) continue;
-    const score=(A.n+B.n)*ratio; if(score>best){ best=score; found=A.x<B.x?[[A.x,A.y],[B.x,B.y]]:[[B.x,B.y],[A.x,A.y]]; } }
+    const score=(A.n+B.n)*ratio*(rel>.55?.5:1); if(score>best){ best=score; found=A.x<B.x?[[A.x,A.y],[B.x,B.y]]:[[B.x,B.y],[A.x,A.y]]; } }
   return found; };
   // a character with eyes may not be the biggest piece (a screenshot's thumbnails add up). Try the big pieces, keep the first with eyes.
   const order=[...Array(nl).keys()].map(k=>k+1).sort((a,b)=>sizes[b]-sizes[a]).slice(0,4);
